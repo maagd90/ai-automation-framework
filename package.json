@@ -1,0 +1,11 @@
+{
+  "name": "ai-locator-agent",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build -w packages/shared && npm run build -w packages/core && npm run build -w packages/browser && npm run build -w packages/storage && npm run build -w packages/generation && npm run build -w packages/benchmark && npm run build -w apps/cli",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

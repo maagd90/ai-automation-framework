@@ -1,0 +1,1 @@
+export { LocatorRepository } from './LocatorRepository';
