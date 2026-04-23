@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Nested Iframes</title></head>
+<body>
+  <h1>Main Page</h1>
+  <button data-testid="main-btn">Main Button</button>
+  <iframe id="frame1" title="Frame 1" srcdoc='
+    <html><body>
+      <button data-testid="frame1-btn">Frame 1 Button</button>
+    </body></html>
+  '></iframe>
+</body>
+</html>
