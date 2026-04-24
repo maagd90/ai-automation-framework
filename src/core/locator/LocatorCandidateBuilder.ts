@@ -29,7 +29,7 @@ export class LocatorCandidateBuilder {
     if (element.text && this.isSemanticTag(element.tagName)) {
       candidates.push({
         strategy: 'getByRole',
-        value: `${this.tagToRole(element.tagName)}, { name: '${element.text.replace(/'/g, "\\'")}' }`,
+        value: `${this.tagToRole(element.tagName)}, { name: '${element.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' }`,
         score: 0,
         validated: false,
         unique: false,
@@ -90,7 +90,7 @@ export class LocatorCandidateBuilder {
     if (element.text) {
       candidates.push({
         strategy: 'xpath',
-        value: `//${element.tagName}[normalize-space()='${element.text.replace(/'/g, "\\'")}']`,
+        value: `//${element.tagName}[normalize-space()='${element.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`,
         score: 0,
         validated: false,
         unique: false,
