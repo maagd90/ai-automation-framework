@@ -1,0 +1,18 @@
+{
+  "name": "ai-agent-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:types": "npm run build -w packages/shared-types",
+    "build:api": "npm run build -w apps/agent-api",
+    "build:ui": "npm run build -w apps/agent-ui",
+    "build": "npm run build:types && npm run build:api && npm run build:ui",
+    "start:api": "npm run start -w apps/agent-api",
+    "dev:api": "npm run dev -w apps/agent-api",
+    "dev:ui": "npm run dev -w apps/agent-ui"
+  }
+}
