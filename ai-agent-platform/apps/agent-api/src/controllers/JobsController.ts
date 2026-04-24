@@ -1,12 +1,22 @@
 import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { jobStore } from '../services/JobStore';
 import { agentRunner } from '../services/AgentRunner';
 import { zipService } from '../services/ZipService';
 import { JobEntity } from '../domain/Job';
 import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
+
+const TEMP_DIR = fs.realpathSync(os.tmpdir());
+
+function safeUnlink(filePath: string): void {
+  const resolved = path.resolve(filePath);
+  if (resolved.startsWith(TEMP_DIR + path.sep) || resolved.startsWith(TEMP_DIR)) {
+    try { fs.unlinkSync(resolved); } catch { /* ignore */ }
+  }
+}
 
 export class JobsController {
   createJob(req: Request, res: Response): void {
@@ -16,9 +26,15 @@ export class JobsController {
       return;
     }
 
+    const uploadedPath = path.resolve(file.path);
+    if (!uploadedPath.startsWith(TEMP_DIR + path.sep) && uploadedPath !== TEMP_DIR) {
+      res.status(400).json({ error: 'Invalid upload path' });
+      return;
+    }
+
     const ext = path.extname(file.originalname).toLowerCase();
     if (!ALLOWED_FILE_TYPES.includes(ext)) {
-      fs.unlinkSync(file.path);
+      safeUnlink(uploadedPath);
       res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}` });
       return;
     }
@@ -30,7 +46,7 @@ export class JobsController {
     };
 
     if (!url || !framework) {
-      fs.unlinkSync(file.path);
+      safeUnlink(uploadedPath);
       res.status(400).json({ error: 'url and framework are required' });
       return;
     }
@@ -39,7 +55,7 @@ export class JobsController {
     try {
       new URL(url);
     } catch {
-      fs.unlinkSync(file.path);
+      safeUnlink(uploadedPath);
       res.status(400).json({ error: 'Invalid URL provided' });
       return;
     }
@@ -52,11 +68,11 @@ export class JobsController {
     const safeFilename = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
     const inputFilePath = path.join(inputDir, safeFilename);
     if (!inputFilePath.startsWith(inputDir + path.sep) && inputFilePath !== inputDir) {
-      fs.unlinkSync(file.path);
+      safeUnlink(uploadedPath);
       res.status(400).json({ error: 'Invalid filename' });
       return;
     }
-    fs.renameSync(file.path, inputFilePath);
+    fs.renameSync(uploadedPath, inputFilePath);
 
     const job = new JobEntity({
       jobId,
