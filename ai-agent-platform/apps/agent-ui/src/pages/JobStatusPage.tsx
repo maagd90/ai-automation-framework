@@ -39,7 +39,7 @@ export default function JobStatusPage() {
   const progressPercent: number = (() => {
     if (status === 'completed') return 100;
     if (status === 'failed') return 100;
-    if (totalCases && totalCases > 0 && processedCases !== undefined) {
+    if (totalCases && processedCases !== undefined) {
       return Math.round((processedCases / totalCases) * 100);
     }
     return status === 'running' ? 30 : 0;
