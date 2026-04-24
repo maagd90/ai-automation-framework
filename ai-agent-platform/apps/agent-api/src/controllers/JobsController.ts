@@ -48,9 +48,14 @@ export class JobsController {
     const inputDir = path.join(JOBS_BASE_DIR, jobId, 'input');
     fs.mkdirSync(inputDir, { recursive: true });
 
-    // Sanitize filename — only keep basename
+    // Sanitize filename — only keep basename, then verify no path traversal
     const safeFilename = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
     const inputFilePath = path.join(inputDir, safeFilename);
+    if (!inputFilePath.startsWith(inputDir + path.sep) && inputFilePath !== inputDir) {
+      fs.unlinkSync(file.path);
+      res.status(400).json({ error: 'Invalid filename' });
+      return;
+    }
     fs.renameSync(file.path, inputFilePath);
 
     const job = new JobEntity({
@@ -64,7 +69,10 @@ export class JobsController {
     jobStore.set(job);
 
     // Run asynchronously — do not await
-    void agentRunner.run(job);
+    void agentRunner.run(job).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Job ${jobId}] Unhandled runner error: ${msg}`);
+    });
 
     res.status(201).json({ jobId });
   }

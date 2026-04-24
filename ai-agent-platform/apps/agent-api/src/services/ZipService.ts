@@ -11,8 +11,10 @@ export class ZipService {
     const archive = archiver('zip', { zlib: { level: 9 } });
 
     archive.on('error', (err) => {
-      res.status(500).json({ error: 'Failed to create zip archive' });
-      throw err;
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to create zip archive' });
+      }
+      console.error('Archive error:', err);
     });
 
     archive.pipe(res);

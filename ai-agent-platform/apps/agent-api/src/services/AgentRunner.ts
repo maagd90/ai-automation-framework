@@ -26,7 +26,7 @@ export class AgentRunner {
       '--output', outputDir,
     ];
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       const child = spawn('node', args, {
         env: {
           ...process.env,
@@ -82,7 +82,7 @@ export class AgentRunner {
         job.error = msg;
         job.addLog(`[${new Date().toISOString()}] ERROR: ${msg}`);
         jobStore.set(job);
-        resolve();
+        reject(err);
       });
     });
   }
