@@ -14,15 +14,14 @@ const TEMP_DIR = fs.realpathSync(os.tmpdir());
 const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
 
 /**
- * Delete a file only if it lives inside the OS temp directory.
- * The path must already be resolved (via path.resolve) by the caller.
+ * Maps validated file extensions to safe type labels used in server-generated filenames.
+ * Using an explicit lookup table (not derived from user input) breaks taint flow for CodeQL.
  */
-function safeUnlinkTempFile(resolvedPath: string): void {
-  // Guard: only act on paths that are confirmed to be within TEMP_DIR
-  const isInTemp = resolvedPath.startsWith(TEMP_DIR + path.sep) || resolvedPath === TEMP_DIR;
-  if (!isInTemp) return;
-  try { fs.unlinkSync(resolvedPath); } catch { /* ignore */ }
-}
+const EXT_TO_LABEL: Readonly<Record<string, string>> = {
+  '.json': 'json',
+  '.txt': 'txt',
+  '.feature': 'feature',
+};
 
 export class JobsController {
   createJob(req: Request, res: Response): void {
@@ -32,15 +31,20 @@ export class JobsController {
       return;
     }
 
+    // ── Validate upload path is within OS temp dir (multer-generated, not user-chosen) ─
     const uploadedPath = path.resolve(file.path);
-    if (!uploadedPath.startsWith(TEMP_DIR + path.sep) && uploadedPath !== TEMP_DIR) {
+    const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
+    if (!isInTemp) {
       res.status(400).json({ error: 'Invalid upload path' });
       return;
     }
 
+    // ── Whitelist extension check ────────────────────────────────────────────
     const ext = path.extname(file.originalname).toLowerCase();
-    if (!ALLOWED_FILE_TYPES.includes(ext)) {
-      safeUnlinkTempFile(uploadedPath);
+    const typeLabel = EXT_TO_LABEL[ext]; // server-controlled lookup; undefined if not allowed
+    if (typeLabel === undefined) {
+      // Safe to unlink: uploadedPath already confirmed to be inside TEMP_DIR
+      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
       res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}` });
       return;
     }
@@ -48,7 +52,7 @@ export class JobsController {
     // Parse and validate all fields via Zod
     const parsed = CreateJobSchema.safeParse(req.body);
     if (!parsed.success) {
-      safeUnlinkTempFile(uploadedPath);
+      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
       res.status(400).json({ error: `Validation error: ${issues}` });
       return;
@@ -78,16 +82,10 @@ export class JobsController {
     const inputDir = path.resolve(JOBS_BASE_DIR_RESOLVED, jobId, 'input');
     fs.mkdirSync(inputDir, { recursive: true });
 
-    // Sanitize: strip directory components and allow only safe characters
-    const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload';
-    // Resolve fully so CodeQL can see the path is confined to inputDir
-    const inputFilePath = path.resolve(inputDir, safeName);
-    if (!inputFilePath.startsWith(inputDir + path.sep)) {
-      safeUnlinkTempFile(uploadedPath);
-      res.status(400).json({ error: 'Invalid filename' });
-      return;
-    }
-    // Move from temp → job input dir (both paths have been validated above)
+    // inputFilePath uses only server-controlled components:
+    //   inputDir (server)  +  'testcases'  +  typeLabel (from EXT_TO_LABEL, not from user)
+    const inputFilePath = path.resolve(inputDir, `testcases.${typeLabel}`);
+    // Move from temp → job input dir
     fs.renameSync(uploadedPath, inputFilePath);
 
     const job = new JobEntity({
