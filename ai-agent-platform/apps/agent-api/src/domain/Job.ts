@@ -1,4 +1,4 @@
-import type { Job, JobStatus, BatchReport } from '@ai-agent/shared-types';
+import type { Job, JobStatus, BatchReport, ExecutionMode } from '@ai-agent/shared-types';
 
 export class JobEntity implements Job {
   jobId: string;
@@ -8,10 +8,13 @@ export class JobEntity implements Job {
   inputFile: string;
   url: string;
   framework: string;
+  executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
-  captureEvidence: boolean;
+  screenshotOnFailure: boolean;
+  traceOnFailure: boolean;
+  videoOnFailure: boolean;
   totalCases?: number;
   processedCases?: number;
   logs: string[];
@@ -24,10 +27,13 @@ export class JobEntity implements Job {
     inputFile: string;
     url: string;
     framework: string;
-    headless: boolean;
+    executionMode?: ExecutionMode;
+    headless?: boolean;
     parallelAgents?: number;
     retryCount?: number;
-    captureEvidence?: boolean;
+    screenshotOnFailure?: boolean;
+    traceOnFailure?: boolean;
+    videoOnFailure?: boolean;
   }) {
     this.jobId = params.jobId;
     this.status = 'pending';
@@ -36,10 +42,13 @@ export class JobEntity implements Job {
     this.inputFile = params.inputFile;
     this.url = params.url;
     this.framework = params.framework;
-    this.headless = params.headless;
+    this.executionMode = params.executionMode ?? 'generate-only';
+    this.headless = params.headless ?? true;
     this.parallelAgents = params.parallelAgents ?? 1;
     this.retryCount = params.retryCount ?? 0;
-    this.captureEvidence = params.captureEvidence ?? false;
+    this.screenshotOnFailure = params.screenshotOnFailure ?? true;
+    this.traceOnFailure = params.traceOnFailure ?? false;
+    this.videoOnFailure = params.videoOnFailure ?? false;
     this.logs = [];
   }
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import type { AiConfig } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR } from '../../config';
@@ -29,6 +30,7 @@ export class BatchJobManager {
       job.setStatus('running');
       log(`Job ${job.jobId} started`);
       log(`Target URL: ${job.url}`);
+      log(`Execution mode: ${job.executionMode}`);
       log(`Parallel agents: ${job.parallelAgents}`);
       jobStore.set(job);
 
@@ -57,22 +59,38 @@ export class BatchJobManager {
       const splits = splitter.split(batch, splitsDir);
       log(`Split into ${splits.length} child job file(s)`);
 
-      // ── Execute ───────────────────────────────────────────────────────────
-      log(`Executing with ${job.parallelAgents} parallel agent(s)…`);
+      // ── Execute generation in parallel ────────────────────────────────────
+      log(`Generating with ${job.parallelAgents} parallel agent(s)…`);
       const childResults = await this.pool.runAll(job, splits);
 
-      // ── Merge ─────────────────────────────────────────────────────────────
-      log('Merging generated artifacts…');
+      // ── Merge into single project ─────────────────────────────────────────
+      log('Merging generated artifacts into final-project…');
       const childIds = splits.map((s) => s.childId);
-      const finalDir = this.merger.merge(job.jobId, childIds);
+      const finalDir = this.merger.merge(job, childIds);
       job.artifactsPath = finalDir;
+      log(`Final project: ${finalDir}`);
+
+      // ── Optionally run tests ───────────────────────────────────────────────
+      let testRunExitCode = 0;
+      if (job.executionMode === 'generate-and-execute') {
+        log('Execution mode: Generate + Execute — running Playwright tests…');
+        testRunExitCode = await this.runPlaywright(finalDir, log);
+        log(`Playwright exit code: ${testRunExitCode}`);
+      }
 
       // ── Report ────────────────────────────────────────────────────────────
+      const aiCalls =
+        aiConfig && aiConfig.provider !== 'none'
+          ? { calls: childResults.length }
+          : undefined;
+
       const report = this.reporter.build({
         startedAt,
         childResults,
         parallelAgents: job.parallelAgents,
-        aiUsage: aiConfig && aiConfig.provider !== 'none' ? childResults.length : 0,
+        executionMode: job.executionMode,
+        testRunExitCode,
+        aiUsage: aiCalls,
       });
       job.report = report;
 
@@ -100,6 +118,35 @@ export class BatchJobManager {
       fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
       jobStore.set(job);
     }
+  }
+
+  /** Runs `npx playwright test` in the final-project dir, returns exit code. */
+  private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
+    return new Promise<number>((resolve) => {
+      const child = spawn('npx', ['playwright', 'test'], {
+        cwd: projectDir,
+        shell: false,
+        env: {
+          ...process.env,
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
+        },
+      });
+
+      child.stdout.on('data', (data: Buffer) => {
+        data.toString().split('\n').filter(Boolean).forEach(log);
+      });
+
+      child.stderr.on('data', (data: Buffer) => {
+        data
+          .toString()
+          .split('\n')
+          .filter(Boolean)
+          .forEach((l) => log(`[TEST STDERR] ${l}`));
+      });
+
+      child.on('close', (code) => resolve(code ?? 1));
+      child.on('error', () => resolve(1));
+    });
   }
 }
 

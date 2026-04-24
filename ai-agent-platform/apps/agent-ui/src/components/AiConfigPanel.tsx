@@ -11,10 +11,12 @@ interface AiConfigPanelProps {
   onModelChange: (v: string) => void;
   baseUrl: string;
   onBaseUrlChange: (v: string) => void;
-  usedForLocator: boolean;
-  onUsedForLocatorChange: (v: boolean) => void;
-  usedForSummary: boolean;
-  onUsedForSummaryChange: (v: boolean) => void;
+  usedForParsing: boolean;
+  onUsedForParsingChange: (v: boolean) => void;
+  usedForNaming: boolean;
+  onUsedForNamingChange: (v: boolean) => void;
+  usedForFailureAnalysis: boolean;
+  onUsedForFailureAnalysisChange: (v: boolean) => void;
 }
 
 const PROVIDERS: { value: AiProvider; label: string }[] = [
@@ -38,10 +40,12 @@ export default function AiConfigPanel({
   onModelChange,
   baseUrl,
   onBaseUrlChange,
-  usedForLocator,
-  onUsedForLocatorChange,
-  usedForSummary,
-  onUsedForSummaryChange,
+  usedForParsing,
+  onUsedForParsingChange,
+  usedForNaming,
+  onUsedForNamingChange,
+  usedForFailureAnalysis,
+  onUsedForFailureAnalysisChange,
 }: AiConfigPanelProps) {
   const [showKey, setShowKey] = useState(false);
 
@@ -137,20 +141,29 @@ export default function AiConfigPanel({
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
-              checked={usedForLocator}
-              onChange={(e) => onUsedForLocatorChange(e.target.checked)}
+              checked={usedForParsing}
+              onChange={(e) => onUsedForParsingChange(e.target.checked)}
               className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
             />
-            <span className="text-sm text-gray-700">Locator suggestions</span>
+            <span className="text-sm text-gray-700">Parsing</span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
-              checked={usedForSummary}
-              onChange={(e) => onUsedForSummaryChange(e.target.checked)}
+              checked={usedForNaming}
+              onChange={(e) => onUsedForNamingChange(e.target.checked)}
               className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
             />
-            <span className="text-sm text-gray-700">Test execution summary</span>
+            <span className="text-sm text-gray-700">Naming</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={usedForFailureAnalysis}
+              onChange={(e) => onUsedForFailureAnalysisChange(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="text-sm text-gray-700">Failure Analysis</span>
           </label>
         </div>
       )}

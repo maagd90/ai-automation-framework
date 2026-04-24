@@ -52,16 +52,20 @@ export class JobsController {
     const {
       url,
       framework,
+      executionMode,
       headless,
       parallelAgents,
       retryCount,
-      captureEvidence,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
       provider,
       apiKey,
       model,
       baseUrl,
-      usedForLocator,
-      usedForSummary,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
     } = parsed.data;
 
     const jobId = uuidv4();
@@ -82,10 +86,13 @@ export class JobsController {
       inputFile: inputFilePath,
       url,
       framework,
+      executionMode,
       headless,
       parallelAgents,
       retryCount,
-      captureEvidence,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
     });
 
     jobStore.set(job);
@@ -99,8 +106,9 @@ export class JobsController {
             model,
             baseUrl,
             usedFor: {
-              locatorSuggestion: usedForLocator,
-              testSummary: usedForSummary,
+              parsing: usedForParsing,
+              naming: usedForNaming,
+              failureAnalysis: usedForFailureAnalysis,
             },
           }
         : undefined;

@@ -21,8 +21,10 @@ program
   .requiredOption('--file <file>', 'Path to test case file (.txt, .json, .feature)')
   .requiredOption('--url <url>', 'Target application URL')
   .option('--output <dir>', 'Output directory', 'generated')
-  .action(async (opts: { file: string; url: string; output: string }) => {
-    await generateCmd.execute(opts.file, opts.url, opts.output);
+  .option('--headless <bool>', 'Run browser in headless mode', 'true')
+  .action(async (opts: { file: string; url: string; output: string; headless: string }) => {
+    const headless = opts.headless !== 'false';
+    await generateCmd.execute(opts.file, opts.url, opts.output, headless);
   });
 
 program

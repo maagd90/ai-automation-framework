@@ -21,12 +21,17 @@ export interface TestCaseBatch {
 
 // ── Execution & AI configuration ───────────────────────────────────────────
 
+export type ExecutionMode = 'generate-only' | 'generate-and-execute';
+
 export interface ExecutionConfig {
   framework: string;
+  executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
-  captureEvidence: boolean;
+  screenshotOnFailure: boolean;
+  traceOnFailure: boolean;
+  videoOnFailure: boolean;
 }
 
 export type AiProvider = 'openai' | 'gemini' | 'azure' | 'local' | 'none';
@@ -38,8 +43,9 @@ export interface AiConfig {
   model?: string;
   baseUrl?: string;
   usedFor?: {
-    locatorSuggestion?: boolean;
-    testSummary?: boolean;
+    parsing?: boolean;
+    naming?: boolean;
+    failureAnalysis?: boolean;
   };
 }
 
@@ -54,7 +60,7 @@ export interface BatchReport {
   failed: number;
   durationMs: number;
   parallelAgents: number;
-  aiUsage?: number;
+  aiUsage?: { calls: number };
   summary: string;
 }
 
@@ -70,10 +76,13 @@ export interface Job {
   inputFile: string;
   url: string;
   framework: string;
+  executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
-  captureEvidence: boolean;
+  screenshotOnFailure: boolean;
+  traceOnFailure: boolean;
+  videoOnFailure: boolean;
   totalCases?: number;
   processedCases?: number;
   logs: string[];

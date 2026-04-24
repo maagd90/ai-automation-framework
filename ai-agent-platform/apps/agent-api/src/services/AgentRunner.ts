@@ -24,14 +24,13 @@ export class AgentRunner {
       '--file', job.inputFile,
       '--url', job.url,
       '--output', outputDir,
+      '--headless', String(job.headless),
     ];
 
     await new Promise<void>((resolve, reject) => {
       const child = spawn('node', args, {
-        env: {
-          ...process.env,
-          HEADLESS: String(job.headless),
-        },
+        shell: false,
+        env: { ...process.env },
       });
 
       const appendLog = (line: string): void => {

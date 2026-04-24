@@ -2,9 +2,13 @@ import { z } from 'zod';
 
 export const ExecutionConfigSchema = z.object({
   framework: z.string().min(1),
+  executionMode: z
+    .enum(['generate-only', 'generate-and-execute'])
+    .default('generate-only'),
   headless: z
     .union([z.boolean(), z.string()])
-    .transform((v) => (typeof v === 'string' ? v === 'true' : v)),
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(true),
   parallelAgents: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))
@@ -13,9 +17,17 @@ export const ExecutionConfigSchema = z.object({
   retryCount: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))
-    .pipe(z.number().int().min(0).max(5))
+    .pipe(z.number().int().min(0).max(2))
     .default(0),
-  captureEvidence: z
+  screenshotOnFailure: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(true),
+  traceOnFailure: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(false),
+  videoOnFailure: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
     .default(false),
@@ -26,11 +38,15 @@ export const AiConfigSchema = z.object({
   apiKey: z.string().optional(),
   model: z.string().optional(),
   baseUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
-  usedForLocator: z
+  usedForParsing: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
     .default(false),
-  usedForSummary: z
+  usedForNaming: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(false),
+  usedForFailureAnalysis: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
     .default(false),

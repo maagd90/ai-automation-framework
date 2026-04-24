@@ -10,8 +10,8 @@ import { Logger } from '../../utils/Logger.js';
 export class GenerateCommand {
   private readonly logger = new Logger('GenerateCommand');
 
-  async execute(filePath: string, url: string, outputDir: string): Promise<void> {
-    this.logger.info('Starting generate command', { filePath, url, outputDir });
+  async execute(filePath: string, url: string, outputDir: string, headless = true): Promise<void> {
+    this.logger.info('Starting generate command', { filePath, url, outputDir, headless });
 
     const content = FileUtils.readFile(filePath);
     const parser = TestCaseParserFactory.create(filePath);
@@ -20,7 +20,7 @@ export class GenerateCommand {
 
     const session = new BrowserSessionManager();
     try {
-      await session.launch({ headless: true });
+      await session.launch({ headless });
       const page = session.getPage();
       const navigator = new PageNavigator(page);
       await navigator.navigate(url);

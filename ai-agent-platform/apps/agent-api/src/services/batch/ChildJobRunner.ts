@@ -26,6 +26,7 @@ export class ChildJobRunner {
       '--file', childFilePath,
       '--url', job.url,
       '--output', outputDir,
+      '--headless', String(job.headless),
     ];
 
     return new Promise<ChildRunResult>((resolve, reject) => {

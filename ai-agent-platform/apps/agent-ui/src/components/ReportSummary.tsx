@@ -57,9 +57,9 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
         <div className="text-sm text-gray-600">
           Parallel agents: <strong>{report.parallelAgents}</strong>
         </div>
-        {report.aiUsage !== undefined && report.aiUsage > 0 && (
+        {report.aiUsage !== undefined && report.aiUsage.calls > 0 && (
           <div className="text-sm text-gray-600 col-span-2">
-            AI calls: <strong>{report.aiUsage}</strong>
+            AI calls: <strong>{report.aiUsage.calls}</strong>
           </div>
         )}
       </div>

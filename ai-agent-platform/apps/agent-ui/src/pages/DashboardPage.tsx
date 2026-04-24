@@ -7,7 +7,7 @@ import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
-import type { AiProvider } from '@ai-agent/shared-types';
+import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -17,19 +17,22 @@ export default function DashboardPage() {
   const [url, setUrl] = useState('');
 
   // Execution config
-  const [framework, setFramework] = useState('playwright-typescript');
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
   const [headless, setHeadless] = useState(true);
   const [parallelAgents, setParallelAgents] = useState(1);
   const [retryCount, setRetryCount] = useState(0);
-  const [captureEvidence, setCaptureEvidence] = useState(false);
+  const [screenshotOnFailure, setScreenshotOnFailure] = useState(true);
+  const [traceOnFailure, setTraceOnFailure] = useState(false);
+  const [videoOnFailure, setVideoOnFailure] = useState(false);
 
   // AI config
   const [provider, setProvider] = useState<AiProvider>('none');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
-  const [usedForLocator, setUsedForLocator] = useState(false);
-  const [usedForSummary, setUsedForSummary] = useState(false);
+  const [usedForParsing, setUsedForParsing] = useState(false);
+  const [usedForNaming, setUsedForNaming] = useState(false);
+  const [usedForFailureAnalysis, setUsedForFailureAnalysis] = useState(false);
 
   const [validationError, setValidationError] = useState('');
 
@@ -62,17 +65,20 @@ export default function DashboardPage() {
     mutation.mutate({
       file,
       url,
-      framework,
+      executionMode,
       headless,
       parallelAgents,
       retryCount,
-      captureEvidence,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
       provider,
       apiKey: apiKey || undefined,
       model: model || undefined,
       baseUrl: baseUrl || undefined,
-      usedForLocator,
-      usedForSummary,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
     });
   };
 
@@ -105,16 +111,20 @@ export default function DashboardPage() {
         <section className="bg-white rounded-xl border shadow-sm p-6">
           <h2 className="text-base font-semibold text-gray-800 mb-4">Execution Config</h2>
           <ExecutionConfigPanel
-            framework={framework}
-            onFrameworkChange={setFramework}
+            executionMode={executionMode}
+            onExecutionModeChange={setExecutionMode}
             headless={headless}
             onHeadlessChange={setHeadless}
             parallelAgents={parallelAgents}
             onParallelAgentsChange={setParallelAgents}
             retryCount={retryCount}
             onRetryCountChange={setRetryCount}
-            captureEvidence={captureEvidence}
-            onCaptureEvidenceChange={setCaptureEvidence}
+            screenshotOnFailure={screenshotOnFailure}
+            onScreenshotOnFailureChange={setScreenshotOnFailure}
+            traceOnFailure={traceOnFailure}
+            onTraceOnFailureChange={setTraceOnFailure}
+            videoOnFailure={videoOnFailure}
+            onVideoOnFailureChange={setVideoOnFailure}
           />
         </section>
 
@@ -130,10 +140,12 @@ export default function DashboardPage() {
             onModelChange={setModel}
             baseUrl={baseUrl}
             onBaseUrlChange={setBaseUrl}
-            usedForLocator={usedForLocator}
-            onUsedForLocatorChange={setUsedForLocator}
-            usedForSummary={usedForSummary}
-            onUsedForSummaryChange={setUsedForSummary}
+            usedForParsing={usedForParsing}
+            onUsedForParsingChange={setUsedForParsing}
+            usedForNaming={usedForNaming}
+            onUsedForNamingChange={setUsedForNaming}
+            usedForFailureAnalysis={usedForFailureAnalysis}
+            onUsedForFailureAnalysisChange={setUsedForFailureAnalysis}
           />
         </section>
 
