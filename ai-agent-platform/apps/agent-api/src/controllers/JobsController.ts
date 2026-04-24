@@ -4,10 +4,11 @@ import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { jobStore } from '../services/JobStore';
-import { agentRunner } from '../services/AgentRunner';
+import { batchJobManager } from '../services/batch/BatchJobManager';
 import { zipService } from '../services/ZipService';
 import { JobEntity } from '../domain/Job';
 import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
+import { CreateJobSchema } from '../validation/schemas';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
 
@@ -39,32 +40,34 @@ export class JobsController {
       return;
     }
 
-    const { url, framework, headless } = req.body as {
-      url?: string;
-      framework?: string;
-      headless?: string;
-    };
-
-    if (!url || !framework) {
+    // Parse and validate all fields via Zod
+    const parsed = CreateJobSchema.safeParse(req.body);
+    if (!parsed.success) {
       safeUnlink(uploadedPath);
-      res.status(400).json({ error: 'url and framework are required' });
+      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      res.status(400).json({ error: `Validation error: ${issues}` });
       return;
     }
 
-    // Basic URL validation
-    try {
-      new URL(url);
-    } catch {
-      safeUnlink(uploadedPath);
-      res.status(400).json({ error: 'Invalid URL provided' });
-      return;
-    }
+    const {
+      url,
+      framework,
+      headless,
+      parallelAgents,
+      retryCount,
+      captureEvidence,
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      usedForLocator,
+      usedForSummary,
+    } = parsed.data;
 
     const jobId = uuidv4();
     const inputDir = path.join(JOBS_BASE_DIR, jobId, 'input');
     fs.mkdirSync(inputDir, { recursive: true });
 
-    // Sanitize filename — only keep basename, then verify no path traversal
     const safeFilename = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
     const inputFilePath = path.join(inputDir, safeFilename);
     if (!inputFilePath.startsWith(inputDir + path.sep) && inputFilePath !== inputDir) {
@@ -79,13 +82,31 @@ export class JobsController {
       inputFile: inputFilePath,
       url,
       framework,
-      headless: headless === 'true',
+      headless,
+      parallelAgents,
+      retryCount,
+      captureEvidence,
     });
 
     jobStore.set(job);
 
+    // Build AiConfig — apiKey is never logged or returned
+    const aiConfig =
+      provider !== 'none'
+        ? {
+            provider,
+            apiKey,
+            model,
+            baseUrl,
+            usedFor: {
+              locatorSuggestion: usedForLocator,
+              testSummary: usedForSummary,
+            },
+          }
+        : undefined;
+
     // Run asynchronously — do not await
-    void agentRunner.run(job).catch((err: unknown) => {
+    void batchJobManager.run(job, aiConfig).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Job ${jobId}] Unhandled runner error: ${msg}`);
     });
@@ -97,7 +118,12 @@ export class JobsController {
     const { jobId } = req.params as { jobId: string };
     try {
       const job = jobStore.getOrThrow(jobId);
-      res.json({ jobId: job.jobId, status: job.status });
+      res.json({
+        jobId: job.jobId,
+        status: job.status,
+        totalCases: job.totalCases,
+        processedCases: job.processedCases,
+      });
     } catch {
       res.status(404).json({ error: 'Job not found' });
     }

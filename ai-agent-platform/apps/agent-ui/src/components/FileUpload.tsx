@@ -19,7 +19,7 @@ export default function FileUpload({ onFileSelect, accept = '.txt,.json,.feature
   );
 
   const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLLabelElement>) => {
       e.preventDefault();
       setDragging(false);
       const dropped = e.dataTransfer.files[0];

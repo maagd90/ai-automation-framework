@@ -8,13 +8,15 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts"
   },
   "dependencies": {
+    "@ai-agent/agent-core": "*",
     "@ai-agent/shared-types": "*",
     "archiver": "^6.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "multer": "^2.1.1",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/archiver": "^6.0.2",

@@ -55,6 +55,10 @@ export class AgentRunner {
           job.artifactsPath = outputDir;
           job.report = {
             status: 'passed',
+            totalCases: 1,
+            passed: 1,
+            failed: 0,
+            parallelAgents: job.parallelAgents,
             durationMs: Date.now() - new Date(job.createdAt).getTime(),
             summary: 'Framework generated successfully',
           };
@@ -64,6 +68,10 @@ export class AgentRunner {
           job.error = `Process exited with code ${code}`;
           job.report = {
             status: 'failed',
+            totalCases: 1,
+            passed: 0,
+            failed: 1,
+            parallelAgents: job.parallelAgents,
             durationMs: Date.now() - new Date(job.createdAt).getTime(),
             summary: `Agent exited with code ${code}`,
           };

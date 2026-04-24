@@ -23,7 +23,7 @@ export default function JobStatusPage() {
   const logsQuery = useQuery({
     queryKey: ['job-logs', jobId],
     queryFn: () => getJobLogs(jobId!),
-    refetchInterval: (query) => {
+    refetchInterval: (_query) => {
       const status = statusQuery.data?.status;
       return status === 'completed' || status === 'failed' ? false : 2000;
     },
@@ -31,6 +31,24 @@ export default function JobStatusPage() {
   });
 
   const status = statusQuery.data?.status;
+  const totalCases = statusQuery.data?.totalCases;
+  const processedCases = statusQuery.data?.processedCases;
+
+  // Deterministic progress: use processedCases/totalCases when available,
+  // otherwise animate at 75% while running.
+  const progressPercent: number = (() => {
+    if (status === 'completed') return 100;
+    if (status === 'failed') return 100;
+    if (totalCases && totalCases > 0 && processedCases !== undefined) {
+      return Math.round((processedCases / totalCases) * 100);
+    }
+    return status === 'running' ? 30 : 0;
+  })();
+
+  const progressLabel =
+    totalCases && processedCases !== undefined
+      ? `${processedCases} / ${totalCases} cases`
+      : undefined;
 
   useEffect(() => {
     if (status === 'completed' || status === 'failed') {
@@ -53,8 +71,18 @@ export default function JobStatusPage() {
 
       {/* Progress bar */}
       {status === 'running' && (
-        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-          <div className="bg-brand-500 h-1.5 rounded-full animate-pulse w-3/4 transition-all duration-500" />
+        <div className="space-y-1">
+          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+            <div
+              className={`bg-brand-500 h-2 rounded-full transition-all duration-500 ${
+                progressPercent < 30 ? 'animate-pulse' : ''
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          {progressLabel && (
+            <p className="text-xs text-gray-500 text-right">{progressLabel}</p>
+          )}
         </div>
       )}
 
