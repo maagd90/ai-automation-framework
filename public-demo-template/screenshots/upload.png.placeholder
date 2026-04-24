@@ -1,0 +1,8 @@
+PLACEHOLDER — replace with a PNG screenshot of the URL upload / input screen.
+
+Shows:
+  - The text field where the user enters a target URL
+  - The "Generate Tests" button
+  - Provider selector (OpenAI / Anthropic / Gemini)
+
+Recommended dimensions: 1280×800.

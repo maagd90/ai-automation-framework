@@ -1,0 +1,8 @@
+PLACEHOLDER — replace with a PNG screenshot of the Playwright HTML test report.
+
+Shows:
+  - Pass/fail summary bar
+  - Individual test rows with duration
+  - Expanded failure with screenshot and trace viewer link
+
+Recommended dimensions: 1280×900.

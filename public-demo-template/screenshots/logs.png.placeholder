@@ -1,0 +1,8 @@
+PLACEHOLDER — replace with a PNG screenshot of the live streaming log view.
+
+Shows:
+  - Real-time log lines from the agent scanning the page
+  - AI prompt/response progress indicators
+  - Playwright test execution output
+
+Recommended dimensions: 1280×800.

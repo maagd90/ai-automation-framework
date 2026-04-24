@@ -1,0 +1,15 @@
+{
+  "name": "ai-automation-framework",
+  "version": "1.0.0",
+  "description": "AI-powered QA Automation Platform — public demo export tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export-demo": "tsx scripts/export-public-demo.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.5"
+  }
+}

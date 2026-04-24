@@ -1,0 +1,209 @@
+[
+  {
+    "id": "tc-001",
+    "name": "User can log in with valid credentials",
+    "url": "https://demo.example.com/login",
+    "generatedAt": "2025-01-15T10:32:00.000Z",
+    "provider": "openai/gpt-4o",
+    "steps": [
+      {
+        "action": "navigate",
+        "target": "https://demo.example.com/login"
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='email-input']",
+        "value": "test@example.com",
+        "locatorScore": 0.97
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='password-input']",
+        "value": "correct-horse-battery-staple",
+        "locatorScore": 0.97
+      },
+      {
+        "action": "click",
+        "locator": "[data-testid='login-button']",
+        "locatorScore": 0.95
+      }
+    ],
+    "assertions": [
+      {
+        "type": "url",
+        "expected": "https://demo.example.com/dashboard"
+      },
+      {
+        "type": "visible",
+        "locator": "[data-testid='welcome-banner']"
+      }
+    ],
+    "tags": ["smoke", "auth"]
+  },
+  {
+    "id": "tc-002",
+    "name": "Login fails with invalid password and shows error message",
+    "url": "https://demo.example.com/login",
+    "generatedAt": "2025-01-15T10:33:00.000Z",
+    "provider": "openai/gpt-4o",
+    "steps": [
+      {
+        "action": "navigate",
+        "target": "https://demo.example.com/login"
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='email-input']",
+        "value": "test@example.com",
+        "locatorScore": 0.97
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='password-input']",
+        "value": "wrong-password",
+        "locatorScore": 0.97
+      },
+      {
+        "action": "click",
+        "locator": "[data-testid='login-button']",
+        "locatorScore": 0.95
+      }
+    ],
+    "assertions": [
+      {
+        "type": "visible",
+        "locator": "[data-testid='error-message']"
+      },
+      {
+        "type": "text",
+        "locator": "[data-testid='error-message']",
+        "expected": "Invalid email or password"
+      },
+      {
+        "type": "url",
+        "expected": "https://demo.example.com/login"
+      }
+    ],
+    "tags": ["smoke", "auth", "negative"]
+  },
+  {
+    "id": "tc-003",
+    "name": "User can add a product to the shopping cart",
+    "url": "https://demo.example.com/products",
+    "generatedAt": "2025-01-15T10:45:00.000Z",
+    "provider": "openai/gpt-4o",
+    "steps": [
+      {
+        "action": "navigate",
+        "target": "https://demo.example.com/products"
+      },
+      {
+        "action": "click",
+        "locator": "[data-testid='product-card']:first-child",
+        "locatorScore": 0.88
+      },
+      {
+        "action": "click",
+        "locator": "[data-testid='add-to-cart-button']",
+        "locatorScore": 0.96
+      }
+    ],
+    "assertions": [
+      {
+        "type": "text",
+        "locator": "[data-testid='cart-count-badge']",
+        "expected": "1"
+      },
+      {
+        "type": "visible",
+        "locator": "[data-testid='cart-success-toast']"
+      }
+    ],
+    "tags": ["smoke", "cart", "e2e"]
+  },
+  {
+    "id": "tc-004",
+    "name": "Search returns relevant results",
+    "url": "https://demo.example.com/search",
+    "generatedAt": "2025-01-15T10:50:00.000Z",
+    "provider": "openai/gpt-4o",
+    "steps": [
+      {
+        "action": "navigate",
+        "target": "https://demo.example.com/search"
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='search-input']",
+        "value": "laptop",
+        "locatorScore": 0.96
+      },
+      {
+        "action": "press",
+        "key": "Enter"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "count",
+        "locator": "[data-testid='search-result-item']",
+        "operator": "greaterThan",
+        "expected": 0
+      },
+      {
+        "type": "text",
+        "locator": "[data-testid='results-heading']",
+        "expected": "Results for \"laptop\""
+      }
+    ],
+    "tags": ["search", "regression"]
+  },
+  {
+    "id": "tc-005",
+    "name": "Contact form submits successfully",
+    "url": "https://demo.example.com/contact",
+    "generatedAt": "2025-01-15T11:00:00.000Z",
+    "provider": "openai/gpt-4o",
+    "steps": [
+      {
+        "action": "navigate",
+        "target": "https://demo.example.com/contact"
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='contact-name']",
+        "value": "Jane Smith",
+        "locatorScore": 0.94
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='contact-email']",
+        "value": "jane@example.com",
+        "locatorScore": 0.95
+      },
+      {
+        "action": "fill",
+        "locator": "[data-testid='contact-message']",
+        "value": "Hello, I am interested in your enterprise plan.",
+        "locatorScore": 0.93
+      },
+      {
+        "action": "click",
+        "locator": "[data-testid='contact-submit-button']",
+        "locatorScore": 0.96
+      }
+    ],
+    "assertions": [
+      {
+        "type": "visible",
+        "locator": "[data-testid='submission-success-message']"
+      },
+      {
+        "type": "text",
+        "locator": "[data-testid='submission-success-message']",
+        "expected": "Thank you! We'll be in touch soon."
+      }
+    ],
+    "tags": ["forms", "regression"]
+  }
+]
