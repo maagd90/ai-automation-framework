@@ -1,0 +1,10 @@
+{
+  "name": "Login with valid credentials",
+  "preconditions": ["User is on login page"],
+  "steps": [
+    { "order": 1, "action": "enter", "value": "admin@test.com", "target": "Email field" },
+    { "order": 2, "action": "enter", "value": "Password123", "target": "Password field" },
+    { "order": 3, "action": "click", "target": "Login button" }
+  ],
+  "expectedResults": ["User should be redirected to Dashboard page"]
+}

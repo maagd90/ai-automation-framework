@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Demo Login</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 400px; margin: 60px auto; padding: 20px; }
+  label { display: block; margin-top: 15px; font-weight: bold; }
+  input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+  button { margin-top: 20px; width: 100%; padding: 10px; background: #007bff; color: #fff; border: none; cursor: pointer; font-size: 16px; }
+  button:hover { background: #0056b3; }
+  #dashboard { display: none; margin-top: 30px; font-size: 20px; color: green; }
+  #error { display: none; margin-top: 10px; color: red; }
+</style>
+</head>
+<body>
+  <h1>Login</h1>
+  <form id="loginForm" novalidate>
+    <label for="email">Email</label>
+    <input id="email" data-testid="email-input" type="email" name="email" placeholder="Email" autocomplete="username" />
+    <label for="password">Password</label>
+    <input id="password" data-testid="password-input" type="password" name="password" placeholder="Password" autocomplete="current-password" />
+    <button id="loginBtn" data-testid="login-btn" type="button">Login</button>
+    <div id="error">Invalid credentials. Use admin@test.com / Password123</div>
+  </form>
+  <div id="dashboard" data-testid="dashboard">Welcome to the Dashboard!</div>
+  <script>
+    document.getElementById('loginBtn').addEventListener('click', function() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      if (email === 'admin@test.com' && password === 'Password123') {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'block';
+      } else {
+        document.getElementById('error').style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
