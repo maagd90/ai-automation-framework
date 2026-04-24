@@ -5,7 +5,9 @@ import { jobsController } from '../controllers/JobsController';
 import { MAX_FILE_SIZE_BYTES } from '../config';
 
 const upload = multer({
-  dest: os.tmpdir(),
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+  }),
   limits: { fileSize: MAX_FILE_SIZE_BYTES },
 });
 
