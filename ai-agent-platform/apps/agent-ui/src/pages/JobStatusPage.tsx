@@ -51,8 +51,9 @@ export default function JobStatusPage() {
       : undefined;
 
   useEffect(() => {
+    // Scroll to top when job reaches a terminal state so the user sees the final status card
     if (status === 'completed' || status === 'failed') {
-      // Brief pause so user can see the final status
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [status]);
 

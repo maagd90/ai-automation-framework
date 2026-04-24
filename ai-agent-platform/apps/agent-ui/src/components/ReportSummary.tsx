@@ -6,23 +6,21 @@ interface ReportSummaryProps {
 }
 
 export default function ReportSummary({ report }: ReportSummaryProps) {
-  const passed = report.status === 'passed';
-  const partial = report.status === 'partial';
+  const { status } = report;
 
-  const borderClass = passed
-    ? 'border-green-400 bg-green-50'
-    : partial
-      ? 'border-yellow-400 bg-yellow-50'
-      : 'border-red-400 bg-red-50';
+  const styleMap: Record<typeof status, {
+    border: string;
+    Icon: typeof CheckCircleIcon;
+    iconClass: string;
+    titleClass: string;
+    title: string;
+  }> = {
+    passed:  { border: 'border-green-400 bg-green-50',   Icon: CheckCircleIcon,  iconClass: 'text-green-600',  titleClass: 'text-green-700',  title: 'Generation Successful' },
+    partial: { border: 'border-yellow-400 bg-yellow-50', Icon: AlertCircleIcon,  iconClass: 'text-yellow-600', titleClass: 'text-yellow-700', title: 'Partial Success'        },
+    failed:  { border: 'border-red-400 bg-red-50',       Icon: XCircleIcon,      iconClass: 'text-red-600',    titleClass: 'text-red-700',    title: 'Generation Failed'      },
+  };
 
-  const Icon = passed ? CheckCircleIcon : partial ? AlertCircleIcon : XCircleIcon;
-  const iconClass = passed ? 'text-green-600' : partial ? 'text-yellow-600' : 'text-red-600';
-  const titleClass = passed ? 'text-green-700' : partial ? 'text-yellow-700' : 'text-red-700';
-  const title = passed
-    ? 'Generation Successful'
-    : partial
-      ? 'Partial Success'
-      : 'Generation Failed';
+  const { border: borderClass, Icon, iconClass, titleClass, title } = styleMap[status];
 
   return (
     <div className={`rounded-lg border-2 p-5 ${borderClass}`}>
