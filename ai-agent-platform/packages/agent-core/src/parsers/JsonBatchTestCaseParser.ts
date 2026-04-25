@@ -42,6 +42,16 @@ export class JsonBatchTestCaseParser {
     const id = typeof obj['id'] === 'string' ? obj['id'] : String(obj['id'] ?? context);
     const name = typeof obj['name'] === 'string' ? obj['name'] : id;
     const description = typeof obj['description'] === 'string' ? obj['description'] : undefined;
+    const preconditions = Array.isArray(obj['preconditions'])
+      ? (obj['preconditions'] as unknown[]).filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : undefined;
+    const expectedResults = Array.isArray(obj['expectedResults'])
+      ? (obj['expectedResults'] as unknown[]).filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : undefined;
 
     if (!Array.isArray(obj['steps'])) {
       throw new Error(`"steps" must be an array at ${context}`);
@@ -49,7 +59,7 @@ export class JsonBatchTestCaseParser {
     const steps: TestStep[] = (obj['steps'] as unknown[]).map((s, i) =>
       this.parseStep(s, `${context}.steps[${i}]`),
     );
-    return { id, name, description, steps };
+    return { id, name, description, preconditions, steps, expectedResults };
   }
 
   private parseStep(raw: unknown, context: string): TestStep {

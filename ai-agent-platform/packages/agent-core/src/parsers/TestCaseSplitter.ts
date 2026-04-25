@@ -36,16 +36,21 @@ export class TestCaseSplitter {
     }>;
     expectedResults: string[];
   } {
+    const maybeRootCompatible = testCase as TestCase & {
+      preconditions?: string[];
+      expectedResults?: string[];
+    };
+
     return {
       name: testCase.name,
-      preconditions: [],
+      preconditions: maybeRootCompatible.preconditions ?? [],
       steps: testCase.steps.map((step) => ({
         order: step.order,
         action: step.action,
         target: step.target ?? '',
         ...(step.value !== undefined ? { value: step.value } : {}),
       })),
-      expectedResults: [],
+      expectedResults: maybeRootCompatible.expectedResults ?? [],
     };
   }
 }

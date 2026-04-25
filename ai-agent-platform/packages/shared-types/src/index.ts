@@ -11,7 +11,9 @@ export interface TestCase {
   id: string;
   name: string;
   description?: string;
+  preconditions?: string[];
   steps: TestStep[];
+  expectedResults?: string[];
 }
 
 export interface TestCaseBatch {

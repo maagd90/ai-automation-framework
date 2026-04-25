@@ -26,6 +26,7 @@ describe('TestCaseSplitter', () => {
           id: 'TC_LOGIN_001',
           name: 'Login with valid credentials',
           description: 'happy path',
+          preconditions: ['User is on login page'],
           steps: [
             {
               order: 1,
@@ -34,6 +35,7 @@ describe('TestCaseSplitter', () => {
               value: 'admin@test.com',
             },
           ],
+          expectedResults: ['Dashboard is visible'],
         },
         {
           id: 'TC_LOGIN_002',
@@ -46,6 +48,7 @@ describe('TestCaseSplitter', () => {
               value: 'wrong-password',
             },
           ],
+          expectedResults: ['Error message is visible'],
         },
       ],
     });
@@ -72,12 +75,18 @@ describe('TestCaseSplitter', () => {
 
       expect(rawChild).not.toHaveProperty('testCases');
       expect(rawChild.name).toBeTypeOf('string');
-      expect(rawChild.preconditions).toEqual([]);
-      expect(rawChild.expectedResults).toEqual([]);
+      expect(Array.isArray(rawChild.preconditions)).toBe(true);
+      expect(Array.isArray(rawChild.expectedResults)).toBe(true);
 
       const parsedChild = rootParser.parse(fs.readFileSync(splitResult.filePath, 'utf8'));
       expect(parsedChild.name).toBe(splitResult.testCase.name);
       expect(parsedChild.steps).toHaveLength(1);
     }
+
+    const firstChild = JSON.parse(
+      fs.readFileSync(splitResults[0].filePath, 'utf8'),
+    ) as Record<string, unknown>;
+    expect(firstChild.preconditions).toEqual(['User is on login page']);
+    expect(firstChild.expectedResults).toEqual(['Dashboard is visible']);
   });
 });
