@@ -1,1 +1,0 @@
-{"root":["./src/index.ts","./src/ai/AiProviderFactory.ts","./src/ai/providers/AiProviders.ts","./src/parsers/FeatureBatchTestCaseParser.ts","./src/parsers/JsonBatchTestCaseParser.ts","./src/parsers/TestCaseBatchValidator.ts","./src/parsers/TestCaseParserFactory.ts","./src/parsers/TestCaseSplitter.ts","./src/parsers/TxtBatchTestCaseParser.ts"],"errors":true,"version":"5.9.3"}

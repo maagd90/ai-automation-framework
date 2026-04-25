@@ -3,7 +3,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
-import { JOBS_BASE_DIR } from '../../config';
+import { JOBS_BASE_DIR, REPO_ROOT_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
@@ -149,9 +149,49 @@ export class BatchJobManager {
     }
   }
 
-  /** Installs generated-project deps and then runs `npm test`, returning the final exit code. */
+  /** Runs Playwright tests, returning the final exit code.
+   *
+   * When INSTALL_GENERATED_PROJECT_DEPS=false, tests are executed from the repo
+   * root (where @playwright/test is already installed) using the generated
+   * project's playwright.config.ts so Playwright resolves testDir correctly.
+   *
+   * When INSTALL_GENERATED_PROJECT_DEPS=true, deps are installed inside the
+   * generated project first and `npm test` is run from there.
+   */
   private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
     return new Promise<number>((resolve) => {
+      if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
+        log('Skipping npm install in generated project (INSTALL_GENERATED_PROJECT_DEPS=false)');
+        log('Running tests via platform Playwright runtime…');
+        const configPath = path.join(projectDir, 'playwright.config.ts');
+        const playwrightBin = path.join(REPO_ROOT_DIR, 'node_modules', '.bin', 'playwright');
+        const testChild = spawn(playwrightBin, ['test', '--config', configPath], {
+          cwd: REPO_ROOT_DIR,
+          shell: false,
+          env: {
+            ...process.env,
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+            PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
+          },
+        });
+
+        testChild.stdout.on('data', (data: Buffer) => {
+          data.toString().split('\n').filter(Boolean).forEach(log);
+        });
+
+        testChild.stderr.on('data', (data: Buffer) => {
+          data
+            .toString()
+            .split('\n')
+            .filter(Boolean)
+            .forEach((l) => log(`[TEST STDERR] ${l}`));
+        });
+
+        testChild.on('close', (testCode) => resolve(testCode ?? 1));
+        testChild.on('error', () => resolve(1));
+        return;
+      }
+
       const installAndRunTests = (): void => {
         const testChild = spawn('npm', ['test'], {
           cwd: projectDir,
@@ -178,12 +218,6 @@ export class BatchJobManager {
         testChild.on('close', (testCode) => resolve(testCode ?? 1));
         testChild.on('error', () => resolve(1));
       };
-
-      if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
-        log('Skipping npm install in generated project (INSTALL_GENERATED_PROJECT_DEPS=false)');
-        installAndRunTests();
-        return;
-      }
 
       const child = spawn('npm', ['install'], {
         cwd: projectDir,
