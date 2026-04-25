@@ -13,4 +13,5 @@ export interface TestStep {
   action: ActionType;
   target: string;
   value?: string;
+  expected?: string;
 }

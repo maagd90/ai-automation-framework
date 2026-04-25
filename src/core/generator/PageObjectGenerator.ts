@@ -21,7 +21,7 @@ export class ${className} {
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto('${url}');
+    await this.page.goto(${this.renderStringLiteral(url)});
     await this.page.waitForLoadState('networkidle');
   }
 }
@@ -59,12 +59,39 @@ ${methods}
 
   private renderLocatorExpression(candidate: LocatorCandidate): string {
     switch (candidate.strategy) {
-      case 'getByTestId': return `this.page.getByTestId('${candidate.value}')`;
-      case 'getByLabel': return `this.page.getByLabel('${candidate.value}')`;
-      case 'getByPlaceholder': return `this.page.getByPlaceholder('${candidate.value}')`;
-      case 'getByText': return `this.page.getByText('${candidate.value}')`;
-      case 'getByRole': return `this.page.getByRole(${candidate.value})`;
-      default: return `this.page.locator('${candidate.value}')`;
+      case 'getByTestId':
+        return `this.page.getByTestId(${this.renderStringLiteral(candidate.value)})`;
+      case 'getByLabel':
+        return `this.page.getByLabel(${this.renderStringLiteral(candidate.value)})`;
+      case 'getByPlaceholder':
+        return `this.page.getByPlaceholder(${this.renderStringLiteral(candidate.value)})`;
+      case 'getByText':
+        return `this.page.getByText(${this.renderStringLiteral(candidate.value)})`;
+      case 'getByRole': {
+        const roleCandidate = this.parseRoleCandidate(candidate.value);
+        if (!roleCandidate) {
+          return `this.page.getByRole(${this.renderStringLiteral(candidate.value)})`;
+        }
+        return roleCandidate.name
+          ? `this.page.getByRole(${this.renderStringLiteral(roleCandidate.role)}, { name: ${this.renderStringLiteral(roleCandidate.name)} })`
+          : `this.page.getByRole(${this.renderStringLiteral(roleCandidate.role)})`;
+      }
+      default:
+        return `this.page.locator(${this.renderStringLiteral(candidate.value)})`;
+    }
+  }
+
+  private renderStringLiteral(value: string): string {
+    return JSON.stringify(value);
+  }
+
+  private parseRoleCandidate(value: string): { role: string; name?: string } | null {
+    try {
+      const parsed = JSON.parse(value) as { role?: string; name?: string };
+      return parsed.role ? { role: parsed.role, name: parsed.name } : null;
+    } catch {
+      const match = value.match(/^(\w+),\s*\{\s*name:\s*'([^']+)'\s*\}$/);
+      return match ? { role: match[1], name: match[2] } : null;
     }
   }
 }

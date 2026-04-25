@@ -19,7 +19,7 @@ export default function DashboardPage() {
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
   const [headless, setHeadless] = useState(true);
-  const [parallelAgents, setParallelAgents] = useState(1);
+  const [parallelAgents, setParallelAgents] = useState(2);
   const [retryCount, setRetryCount] = useState(0);
   const [screenshotOnFailure, setScreenshotOnFailure] = useState(true);
   const [traceOnFailure, setTraceOnFailure] = useState(false);

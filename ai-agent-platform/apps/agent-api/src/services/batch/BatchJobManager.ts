@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import type { AiConfig } from '@ai-agent/shared-types';
+import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
@@ -61,12 +61,13 @@ export class BatchJobManager {
 
       // ── Execute generation in parallel ────────────────────────────────────
       log(`Generating with ${job.parallelAgents} parallel agent(s)…`);
-      const childResults = await this.pool.runAll(job, splits);
+      const childResults = await this.pool.runAll(job, splits, aiConfig);
 
       // ── Merge into single project ─────────────────────────────────────────
       log('Merging generated artifacts into final-project…');
       const childIds = splits.map((s) => s.childId);
       const finalDir = this.merger.merge(job, childIds);
+      this.merger.validate(finalDir);
       job.artifactsPath = finalDir;
       log(`Final project: ${finalDir}`);
 
@@ -79,10 +80,7 @@ export class BatchJobManager {
       }
 
       // ── Report ────────────────────────────────────────────────────────────
-      const aiCalls =
-        aiConfig && aiConfig.provider !== 'none'
-          ? { calls: childResults.length }
-          : undefined;
+      const aiUsage = this.buildAiUsageSummary(aiConfig);
 
       const report = this.reporter.build({
         startedAt,
@@ -90,12 +88,17 @@ export class BatchJobManager {
         parallelAgents: job.parallelAgents,
         executionMode: job.executionMode,
         testRunExitCode,
-        aiUsage: aiCalls,
+        aiUsage,
       });
       job.report = report;
 
       const reportPath = path.join(JOBS_BASE_DIR, job.jobId, 'report.json');
       fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      fs.mkdirSync(path.join(finalDir, 'reports'), { recursive: true });
+      fs.writeFileSync(
+        path.join(finalDir, 'reports', 'batch-execution-report.json'),
+        JSON.stringify(report, null, 2),
+      );
 
       job.setStatus(report.status === 'failed' ? 'failed' : 'completed');
       log(`Job finished — ${report.status.toUpperCase()} (${report.passed}/${report.totalCases} passed)`);
@@ -123,7 +126,7 @@ export class BatchJobManager {
   /** Runs `npx playwright test` in the final-project dir, returns exit code. */
   private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
     return new Promise<number>((resolve) => {
-      const child = spawn('npx', ['playwright', 'test'], {
+      const child = spawn('npm', ['install'], {
         cwd: projectDir,
         shell: false,
         env: {
@@ -133,7 +136,7 @@ export class BatchJobManager {
       });
 
       child.stdout.on('data', (data: Buffer) => {
-        data.toString().split('\n').filter(Boolean).forEach(log);
+        data.toString().split('\n').filter(Boolean).forEach((line) => log(`[INSTALL] ${line}`));
       });
 
       child.stderr.on('data', (data: Buffer) => {
@@ -141,12 +144,52 @@ export class BatchJobManager {
           .toString()
           .split('\n')
           .filter(Boolean)
-          .forEach((l) => log(`[TEST STDERR] ${l}`));
+          .forEach((l) => log(`[INSTALL STDERR] ${l}`));
       });
 
-      child.on('close', (code) => resolve(code ?? 1));
+      child.on('close', (code) => {
+        if ((code ?? 1) !== 0) {
+          resolve(code ?? 1);
+          return;
+        }
+
+        const testChild = spawn('npm', ['test'], {
+          cwd: projectDir,
+          shell: false,
+          env: {
+            ...process.env,
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
+          },
+        });
+
+        testChild.stdout.on('data', (data: Buffer) => {
+          data.toString().split('\n').filter(Boolean).forEach(log);
+        });
+
+        testChild.stderr.on('data', (data: Buffer) => {
+          data
+            .toString()
+            .split('\n')
+            .filter(Boolean)
+            .forEach((l) => log(`[TEST STDERR] ${l}`));
+        });
+
+        testChild.on('close', (testCode) => resolve(testCode ?? 1));
+        testChild.on('error', () => resolve(1));
+      });
       child.on('error', () => resolve(1));
     });
+  }
+
+  private buildAiUsageSummary(aiConfig?: AiConfig): AiUsageSummary {
+    return {
+      provider: aiConfig?.provider ?? 'none',
+      model: aiConfig?.model,
+      calls: 0,
+      parsingCalls: 0,
+      namingCalls: 0,
+      failureAnalysisCalls: 0,
+    };
   }
 }
 

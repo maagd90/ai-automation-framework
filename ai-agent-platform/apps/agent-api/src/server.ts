@@ -5,8 +5,23 @@ import { jobsRouter } from './routes/jobs.router';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
+const allowedOrigins = (process.env.ALLOWED_ORIGINS
+  ?? 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('CORS origin not allowed'));
+    },
+  }),
+);
 app.use(express.json());
 
 const apiLimiter = rateLimit({

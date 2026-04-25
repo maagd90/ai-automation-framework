@@ -76,3 +76,8 @@ Open http://localhost:3000 in your browser.
 - File paths sanitized
 - Agent internals not exposed to UI
 - Input validation on all fields
+
+## Phase 1 limitations
+
+- Jobs are stored in memory only in Phase 1.
+- Job history, logs, and status are lost when the API process restarts.

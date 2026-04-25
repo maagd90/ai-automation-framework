@@ -12,8 +12,8 @@ export const ExecutionConfigSchema = z.object({
   parallelAgents: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))
-    .pipe(z.number().int().min(1).max(20))
-    .default(1),
+    .pipe(z.number().int().min(1).max(10))
+    .default(2),
   retryCount: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))

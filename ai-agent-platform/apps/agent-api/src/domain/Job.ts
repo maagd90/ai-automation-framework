@@ -44,7 +44,7 @@ export class JobEntity implements Job {
     this.framework = params.framework;
     this.executionMode = params.executionMode ?? 'generate-only';
     this.headless = params.headless ?? true;
-    this.parallelAgents = params.parallelAgents ?? 1;
+    this.parallelAgents = params.parallelAgents ?? 2;
     this.retryCount = params.retryCount ?? 0;
     this.screenshotOnFailure = params.screenshotOnFailure ?? true;
     this.traceOnFailure = params.traceOnFailure ?? false;

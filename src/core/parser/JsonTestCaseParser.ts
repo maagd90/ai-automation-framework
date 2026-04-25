@@ -12,6 +12,7 @@ const TestStepSchema = z.object({
   action: ActionTypeSchema,
   target: z.string(),
   value: z.string().optional(),
+  expected: z.string().optional(),
 });
 
 const TestCaseSchema = z.object({

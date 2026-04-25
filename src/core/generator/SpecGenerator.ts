@@ -21,27 +21,31 @@ export class SpecGenerator {
     const pageVarName = StringUtils.toCamelCase(pageName) + 'Page';
 
     const callLines: string[] = [];
-    callLines.push(`await page.goto('${url}');`);
+    callLines.push(`await ${pageVarName}.goto();`);
 
-    for (const locator of locators) {
+    for (const [index, locator] of locators.entries()) {
       const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
-      const step = testCase.steps.find(s => s.target === locator.stepTarget);
+      const step = testCase.steps[index] ?? testCase.steps.find(s => s.target === locator.stepTarget);
       switch (locator.action) {
         case 'enter':
-          callLines.push(`await ${pageVarName}.${methodName}('${step?.value ?? ''}');`);
+          callLines.push(`await ${pageVarName}.${methodName}(${this.renderStringLiteral(step?.value ?? '')});`);
           break;
-        case 'verifyText':
-          callLines.push(`await ${pageVarName}.${methodName}('${step?.value ?? ''}');`);
+        case 'verifyText': {
+          const expected = step?.expected ?? this.resolveExpectedText(testCase, step?.target);
+          if (expected) {
+            callLines.push(`await ${pageVarName}.${methodName}(${this.renderStringLiteral(expected)});`);
+          }
           break;
+        }
         default:
           callLines.push(`await ${pageVarName}.${methodName}();`);
       }
     }
 
     const content = `import { test } from '@playwright/test';
-import { ${className} } from '../pages/${className}.js';
+import { ${className} } from '../pages/${className}';
 
-test('${testCase.name}', async ({ page }) => {
+test(${this.renderStringLiteral(testCase.name)}, async ({ page }) => {
   const ${pageVarName} = new ${className}(page);
 
 ${callLines.map(l => `  ${l.trim()}`).join('\n')}
@@ -52,5 +56,20 @@ ${callLines.map(l => `  ${l.trim()}`).join('\n')}
     FileUtils.writeFile(outPath, content);
     this.logger.info(`Spec file generated: ${outPath}`);
     return outPath;
+  }
+
+  private renderStringLiteral(value: string): string {
+    return JSON.stringify(value);
+  }
+
+  private resolveExpectedText(testCase: TestCase, target?: string): string | undefined {
+    if (!target) return testCase.expectedResults[0];
+
+    const normalizedTarget = StringUtils.normalize(target);
+    return (
+      testCase.expectedResults.find((result) =>
+        StringUtils.normalize(result).includes(normalizedTarget),
+      ) ?? testCase.expectedResults[0]
+    );
   }
 }

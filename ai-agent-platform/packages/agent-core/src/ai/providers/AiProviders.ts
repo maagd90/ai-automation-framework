@@ -74,10 +74,13 @@ export class GeminiProvider implements IAiProvider {
   }
 
   async complete(req: AiCompletionRequest): Promise<AiCompletionResponse> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': this.apiKey,
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: req.prompt }] }],
         generationConfig: { maxOutputTokens: req.maxTokens ?? 512 },

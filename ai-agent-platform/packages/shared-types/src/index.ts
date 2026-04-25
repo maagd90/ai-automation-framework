@@ -49,6 +49,15 @@ export interface AiConfig {
   };
 }
 
+export interface AiUsageSummary {
+  provider: AiProvider;
+  model?: string;
+  calls: number;
+  parsingCalls: number;
+  namingCalls: number;
+  failureAnalysisCalls: number;
+}
+
 // ── Batch execution report ─────────────────────────────────────────────────
 
 export type BatchStatus = 'passed' | 'failed' | 'partial';
@@ -60,7 +69,7 @@ export interface BatchReport {
   failed: number;
   durationMs: number;
   parallelAgents: number;
-  aiUsage?: { calls: number };
+  aiUsage?: AiUsageSummary;
   summary: string;
 }
 

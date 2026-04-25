@@ -5,6 +5,7 @@ import { StringUtils } from '../../utils/StringUtils.js';
 export class LocatorCandidateBuilder {
   build(element: ElementNode): LocatorCandidate[] {
     const candidates: LocatorCandidate[] = [];
+    const role = element.role ?? element.inferredRole ?? this.tagToRole(element.tagName);
 
     if (element.dataTestId) {
       candidates.push({
@@ -16,10 +17,20 @@ export class LocatorCandidateBuilder {
       });
     }
 
+    if (element.associatedLabel) {
+      candidates.push({
+        strategy: 'getByLabel',
+        value: element.associatedLabel,
+        score: 0,
+        validated: false,
+        unique: false,
+      });
+    }
+
     if (element.ariaLabel) {
       candidates.push({
         strategy: 'getByRole',
-        value: `${element.tagName}, { name: '${element.ariaLabel}' }`,
+        value: JSON.stringify({ role, name: element.ariaLabel }),
         score: 0,
         validated: false,
         unique: false,
@@ -29,7 +40,7 @@ export class LocatorCandidateBuilder {
     if (element.text && this.isSemanticTag(element.tagName)) {
       candidates.push({
         strategy: 'getByRole',
-        value: `${this.tagToRole(element.tagName)}, { name: '${element.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' }`,
+        value: JSON.stringify({ role, name: element.text }),
         score: 0,
         validated: false,
         unique: false,

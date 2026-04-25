@@ -23,13 +23,18 @@ export class LocatorService {
     const results: LocatorResult[] = [];
 
     for (const step of steps) {
-      const matched = this.matcher.match(step.target, elements);
+      const matched = this.matcher.match(step.target, elements, step.action);
       if (!matched) {
         this.logger.warn(`No element matched for target: ${step.target}`);
         continue;
       }
 
-      const rawCandidates = this.builder.build(matched);
+      this.logger.info(`Matched target "${step.target}"`, {
+        confidence: matched.confidence,
+        diagnostics: matched.diagnostics.join(', '),
+      });
+
+      const rawCandidates = this.builder.build(matched.element);
       const ranked = this.ranker.rank(rawCandidates);
       const validated = await Promise.all(ranked.map(c => this.validator.validate(page, c)));
       const unique = validated.filter(c => c.unique);
@@ -42,11 +47,13 @@ export class LocatorService {
         stepTarget: step.target,
         action: step.action,
         element: {
-          tagName: matched.tagName,
-          name: matched.name,
-          placeholder: matched.placeholder,
-          id: matched.id,
-          dataTestId: matched.dataTestId,
+          tagName: matched.element.tagName,
+          name: matched.element.name,
+          placeholder: matched.element.placeholder,
+          associatedLabel: matched.element.associatedLabel,
+          accessibleName: matched.element.accessibleName,
+          id: matched.element.id,
+          dataTestId: matched.element.dataTestId,
         },
         primaryLocator: primary,
         fallbackLocators: fallbacks,

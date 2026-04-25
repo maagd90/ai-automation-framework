@@ -31,9 +31,19 @@ export class LocatorValidator {
       case 'getByPlaceholder': return page.getByPlaceholder(candidate.value);
       case 'getByLabel': return page.getByLabel(candidate.value);
       case 'getByRole': {
-        const match = candidate.value.match(/^(\w+),\s*\{\s*name:\s*'([^']+)'\s*\}$/);
-        if (match) {
-          return page.getByRole(match[1] as Parameters<Page['getByRole']>[0], { name: match[2] });
+        try {
+          const parsed = JSON.parse(candidate.value) as { role: string; name?: string };
+          if (parsed?.role) {
+            return page.getByRole(
+              parsed.role as Parameters<Page['getByRole']>[0],
+              parsed.name ? { name: parsed.name } : undefined,
+            );
+          }
+        } catch {
+          const match = candidate.value.match(/^(\w+),\s*\{\s*name:\s*'([^']+)'\s*\}$/);
+          if (match) {
+            return page.getByRole(match[1] as Parameters<Page['getByRole']>[0], { name: match[2] });
+          }
         }
         return page.getByRole(candidate.value as Parameters<Page['getByRole']>[0]);
       }
