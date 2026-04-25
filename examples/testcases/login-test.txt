@@ -1,0 +1,8 @@
+Test Case: Login with valid credentials
+Precondition: User is on login page
+Steps:
+1. Enter "admin@test.com" into Email field
+2. Enter "Password123" into Password field
+3. Click Login button
+Expected Result:
+User should be redirected to Dashboard page
