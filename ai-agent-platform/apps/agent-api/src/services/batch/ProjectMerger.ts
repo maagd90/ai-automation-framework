@@ -98,8 +98,8 @@ export class ProjectMerger {
         const renamedImportBase = path.basename(renamedName, '.ts');
 
         content = content
-          .replace(`../pages/${originalImportBase}.js`, `../pages/${renamedImportBase}`)
-          .replace(`../pages/${originalImportBase}`, `../pages/${renamedImportBase}`);
+          .replaceAll(`../pages/${originalImportBase}.js`, `../pages/${renamedImportBase}`)
+          .replaceAll(`../pages/${originalImportBase}`, `../pages/${renamedImportBase}`);
       }
 
       fs.writeFileSync(path.join(destDir, destName), content, 'utf8');

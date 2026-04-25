@@ -80,7 +80,7 @@ export class BatchJobManager {
       }
 
       // ── Report ────────────────────────────────────────────────────────────
-      const aiUsage = this.buildAiUsageSummary(aiConfig);
+      const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
 
       const report = this.reporter.build({
         startedAt,
@@ -181,14 +181,18 @@ export class BatchJobManager {
     });
   }
 
-  private buildAiUsageSummary(aiConfig?: AiConfig): AiUsageSummary {
+  private buildAiUsageSummary(aiConfig: AiConfig | undefined, childResults: Array<{ aiUsage?: AiUsageSummary }>): AiUsageSummary {
+    const childUsage = childResults
+      .map((result) => result.aiUsage)
+      .filter((usage): usage is AiUsageSummary => Boolean(usage));
+
     return {
-      provider: aiConfig?.provider ?? 'none',
-      model: aiConfig?.model,
-      calls: 0,
-      parsingCalls: 0,
-      namingCalls: 0,
-      failureAnalysisCalls: 0,
+      provider: childUsage[0]?.provider ?? aiConfig?.provider ?? 'none',
+      model: childUsage[0]?.model ?? aiConfig?.model,
+      calls: childUsage.reduce((sum, usage) => sum + usage.calls, 0),
+      parsingCalls: childUsage.reduce((sum, usage) => sum + usage.parsingCalls, 0),
+      namingCalls: childUsage.reduce((sum, usage) => sum + usage.namingCalls, 0),
+      failureAnalysisCalls: childUsage.reduce((sum, usage) => sum + usage.failureAnalysisCalls, 0),
     };
   }
 }

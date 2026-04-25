@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import type { AiConfig } from '@ai-agent/shared-types';
+import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
@@ -11,6 +11,7 @@ export interface ChildRunResult {
   exitCode: number;
   durationMs: number;
   attempts: number;
+  aiUsage?: AiUsageSummary;
 }
 
 export class ChildJobRunner {
@@ -23,6 +24,7 @@ export class ChildJobRunner {
   ): Promise<ChildRunResult> {
     const childDir = path.join(JOBS_BASE_DIR, job.jobId, 'children', childId);
     const outputDir = path.join(childDir, 'generated');
+    const aiUsagePath = path.join(childDir, 'ai-usage.json');
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
     fs.mkdirSync(outputDir, { recursive: true });
 
@@ -51,6 +53,7 @@ export class ChildJobRunner {
           AI_USE_FOR_PARSING: String(aiConfig?.usedFor?.parsing ?? false),
           AI_USE_FOR_NAMING: String(aiConfig?.usedFor?.naming ?? false),
           AI_USE_FOR_FAILURE_ANALYSIS: String(aiConfig?.usedFor?.failureAnalysis ?? false),
+          AI_USAGE_OUTPUT_FILE: aiUsagePath,
         },
       });
 
@@ -79,10 +82,23 @@ export class ChildJobRunner {
           exitCode: code ?? 1,
           durationMs: Date.now() - started,
           attempts: attempt,
+          aiUsage: this.readAiUsage(aiUsagePath),
         });
       });
 
       child.on('error', reject);
     });
+  }
+
+  private readAiUsage(aiUsagePath: string): AiUsageSummary | undefined {
+    if (!fs.existsSync(aiUsagePath)) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(fs.readFileSync(aiUsagePath, 'utf8')) as AiUsageSummary;
+    } catch {
+      return undefined;
+    }
   }
 }
