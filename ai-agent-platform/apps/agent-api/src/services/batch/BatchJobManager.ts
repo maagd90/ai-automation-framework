@@ -123,7 +123,7 @@ export class BatchJobManager {
     }
   }
 
-  /** Runs `npx playwright test` in the final-project dir, returns exit code. */
+  /** Installs generated-project deps and then runs `npm test`, returning the final exit code. */
   private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
     return new Promise<number>((resolve) => {
       const child = spawn('npm', ['install'], {
