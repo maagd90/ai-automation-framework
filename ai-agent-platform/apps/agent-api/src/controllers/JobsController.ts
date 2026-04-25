@@ -194,11 +194,21 @@ export class JobsController {
     const { jobId } = req.params as { jobId: string };
     try {
       const job = jobStore.getOrThrow(jobId);
+
+      if (job.artifactsDownloaded) {
+        res.status(410).json({ error: 'Artifacts already downloaded or expired' });
+        return;
+      }
+
       if (job.status !== 'completed' || !job.artifactsPath) {
         res.status(404).json({ error: 'Artifacts not available' });
         return;
       }
-      zipService.streamZip(job.artifactsPath, job.jobId, res);
+
+      zipService.streamZip(job.artifactsPath, job.jobId, res, () => {
+        job.markDownloaded();
+        jobStore.set(job);
+      });
     } catch {
       res.status(404).json({ error: 'Job not found' });
     }

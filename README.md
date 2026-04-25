@@ -19,89 +19,90 @@ npm run build
 
 ## Docker Deployment (Phase 1)
 
-The API server runs Playwright and Chromium. The official Playwright Docker image ships with all required browser binaries and system libraries pre-installed, so no browser download is needed at runtime.
+The project runs as two separate Docker containers — a lightweight UI container and a Playwright-enabled API container.
 
-### Build the image
-
-```bash
-docker build -t ai-agent-platform:local .
-```
-
-### Run with Docker Compose (recommended for local smoke testing)
+### Quick start
 
 ```bash
-docker compose up
+# 1. Copy the example env file (no secrets are committed)
+cp .env.example .env
+
+# 2. If you want Gemini AI support, add your key to .env:
+#    GEMINI_API_KEY=your-key-here
+#    (Never commit this value)
+
+# 3. Build and start both containers
+docker-compose up --build
 ```
 
-The API will be available at `http://localhost:3001`. Job artifacts are persisted in the `jobs_data` Docker volume.
+| Endpoint | URL |
+|---|---|
+| UI | http://localhost:5173 |
+| API health | http://localhost:3001/api/health |
 
-### Run the container directly
+### What each container does
 
-```bash
-docker run -d \
-  --name agent-api \
-  -p 3001:3001 \
-  -e MAX_GLOBAL_AGENTS=2 \
-  -e MAX_PARALLEL_AGENTS_PER_JOB=1 \
-  -e INSTALL_GENERATED_PROJECT_DEPS=false \
-  -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-  -e JOBS_DIR=/tmp/jobs \
-  -v agent_jobs:/tmp/jobs \
-  ai-agent-platform:local
+| Container | Base image | Responsibilities |
+|---|---|---|
+| `api` | `mcr.microsoft.com/playwright:v1.41.0-jammy` | Runs Express API + Playwright/Chromium headless browser + CLI |
+| `ui` | `node:18-alpine` | Builds and serves the React UI via `vite preview` |
+
+Playwright browsers are **pre-installed** in the official Playwright base image at `/ms-playwright`. There is no `npx playwright install` at runtime.
+
+### Job artifacts and storage
+
+- Job artifacts (generated Playwright framework ZIP) are stored in the `ai-agent-jobs` Docker volume at `/tmp/jobs`.
+- After a successful download, the job folder is **automatically deleted** to free disk space.
+- Old jobs that were never downloaded are cleaned up automatically after `JOB_RETENTION_HOURS` (default: 24 h).
+
+### Secrets
+
+- Copy `.env.example` → `.env` and fill in `GEMINI_API_KEY` only when needed.
+- `.env` is `.gitignore`d and `.dockerignore`d — it is never committed or baked into the image.
+- The API never logs the API key.
+
+### MacBook Air 8 GB — recommended demo settings
+
+Chromium uses roughly 200–500 MB per headless browser process. Keep concurrency low:
+
+```env
+MAX_GLOBAL_AGENTS=1
+MAX_PARALLEL_AGENTS_PER_JOB=1
+MAX_TEST_CASES_PER_JOB=5
+ENABLE_TRACE_VIDEO=false
+ENABLE_LOCAL_LLM=false
 ```
+
+These are already the defaults in `.env.example` and `docker-compose.yml`.
 
 ### Key environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_GLOBAL_AGENTS` | `3` | Hard cap on concurrent Playwright/Node child processes across all jobs |
-| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job cap to prevent a single job from monopolising agents |
-| `INSTALL_GENERATED_PROJECT_DEPS` | `false` | If `false`, tests are run via the platform Playwright runtime (no per-job `npm install`). Set `true` only when the generated project must resolve its own deps. |
-| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Pre-installed browser location inside the image |
-| `JOBS_DIR` | `/tmp/jobs` | Directory for job artifacts; mount a volume here to persist across restarts |
+| `MAX_GLOBAL_AGENTS` | `1` | Hard cap on concurrent Playwright/Node processes |
+| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job cap |
+| `MAX_TEST_CASES_PER_JOB` | `5` | Prevents runaway resource use on large uploads |
+| `INSTALL_GENERATED_PROJECT_DEPS` | `false` | Use platform Playwright runtime (no per-job `npm install`) |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Pre-installed browser location |
+| `JOBS_DIR` | `/tmp/jobs` | Job artifact storage; mount a volume here |
+| `JOB_RETENTION_HOURS` | `24` | Auto-delete old jobs after this many hours |
 | `PORT` | `3001` | API listen port |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins |
+| `GEMINI_API_KEY` | _(empty)_ | Gemini API key — never committed or logged |
 
-### Memory planning
-
-Each headless Chromium process uses roughly 200–500 MB of RAM depending on page complexity. Each child Node/agent process adds roughly 50–150 MB.
-
-**Conservative planning formula:**
-
-```
-requiredMemory ≈ baseAPI (~256 MB) + MAX_GLOBAL_AGENTS × 500 MB + buffer
-```
-
-| Available RAM | Recommended `MAX_GLOBAL_AGENTS` |
-|---|---|
-| 1–2 GB | 1 |
-| 2–4 GB | 2–3 |
-| 8 GB | Up to 5 |
-
-The API logs the estimated peak memory on startup:
+The API logs an estimated peak memory on startup:
 
 ```
 [Runtime Config]
-  MAX_GLOBAL_AGENTS           = 2
-  MAX_PARALLEL_AGENTS_PER_JOB = 1
+  MAX_GLOBAL_AGENTS              = 1
+  MAX_PARALLEL_AGENTS_PER_JOB   = 1
   INSTALL_GENERATED_PROJECT_DEPS = false
-  PLAYWRIGHT_BROWSERS_PATH    = /ms-playwright
-  Detected memory             = 2048 MB (container limit)
-  Estimated peak memory usage ≈ 1256 MB
+  PLAYWRIGHT_BROWSERS_PATH       = /ms-playwright
+  Detected memory                = 4096 MB (container limit)
+  Estimated peak memory usage ≈ 756 MB
     (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~500 MB/agent)
 ```
 
-### UI (optional)
-
-The React UI is not included in the API Docker image. To serve the UI:
-
-1. Build it locally:
-   ```bash
-   cd ai-agent-platform && npm run build:ui
-   ```
-2. Uncomment the `agent-ui` service in `docker-compose.yml` and start with `docker compose up`.
-
-Or run the Vite dev server separately and point it at `http://localhost:3001`.
 
 ## Demo Deployment Defaults
 
@@ -121,8 +122,8 @@ JOB_RETENTION_HOURS=24
 INSTALL_GENERATED_PROJECT_DEPS=false
 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Feature flags — all off for Phase 1 demo
-ENABLE_AI_PROVIDERS=false
+# Feature flags — AI on; heavy optional features off for demo
+ENABLE_AI_PROVIDERS=true
 ENABLE_LOCAL_LLM=false
 ENABLE_TRACE_VIDEO=false
 ENABLE_BATCH_LARGE_UPLOAD=false
@@ -138,6 +139,14 @@ ENABLE_ADMIN_PANEL=false
 | `ENABLE_TRACE_VIDEO` | `false` | Allows trace and video capture on failure |
 | `ENABLE_BATCH_LARGE_UPLOAD` | `false` | Allows batches larger than `MAX_TEST_CASES_PER_JOB` |
 | `ENABLE_ADMIN_PANEL` | `false` | Reserved for Phase 2 admin panel |
+
+### Storage and cleanup
+
+- Job artifact folders are **deleted automatically after a successful ZIP download** — disk space is reclaimed immediately.
+- Jobs that were never downloaded are **pruned automatically** every `JOB_RETENTION_HOURS` hours (default: 24).
+- Active/running jobs are never pruned regardless of age.
+- Only paths inside `JOBS_DIR` are ever touched by the cleanup logic.
+- Re-downloading an already-cleaned artifact returns HTTP 410 with a clear message.
 
 ### Phase roadmap
 

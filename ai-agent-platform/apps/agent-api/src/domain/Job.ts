@@ -21,6 +21,8 @@ export class JobEntity implements Job {
   artifactsPath?: string;
   report?: BatchReport;
   error?: string;
+  /** Set to true after the generated artifacts ZIP has been downloaded and cleaned up. */
+  artifactsDownloaded?: boolean;
 
   constructor(params: {
     jobId: string;
@@ -64,6 +66,12 @@ export class JobEntity implements Job {
 
   incrementProcessed(): void {
     this.processedCases = (this.processedCases ?? 0) + 1;
+    this.updatedAt = new Date().toISOString();
+  }
+
+  markDownloaded(): void {
+    this.artifactsDownloaded = true;
+    this.artifactsPath = undefined;
     this.updatedAt = new Date().toISOString();
   }
 }

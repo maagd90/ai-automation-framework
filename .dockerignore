@@ -17,10 +17,17 @@ generated/
 
 # Job storage (runtime-generated; mount a volume instead)
 jobs/
+storage/
+tmp/
 
 # Logs
 *.log
 logs/
+
+# Test coverage and reports
+coverage/
+playwright-report/
+test-results/
 
 # Secrets and environment overrides
 .env

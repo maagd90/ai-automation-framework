@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { JOBS_BASE_DIR } from '../config';
 import { runtimeConfig } from '../config/runtime.config';
+import { jobStore } from './JobStore';
 
 /**
  * Prunes job artifact directories that are older than JOB_RETENTION_HOURS.
@@ -9,6 +10,8 @@ import { runtimeConfig } from '../config/runtime.config';
  * Only removes directories whose names look like UUIDs (36-char hex strings)
  * so we never accidentally delete unrelated directories even if JOBS_BASE_DIR
  * is misconfigured.
+ *
+ * Active/running jobs are never deleted regardless of age.
  */
 export function pruneOldJobs(): void {
   if (!fs.existsSync(JOBS_BASE_DIR)) return;
@@ -31,6 +34,10 @@ export function pruneOldJobs(): void {
     if (!entry.isDirectory()) continue;
     if (!UUID_RE.test(entry.name)) continue;
 
+    // Never delete a job that is currently active
+    const job = jobStore.get(entry.name);
+    if (job?.status === 'running' || job?.status === 'pending') continue;
+
     const dirPath = path.join(JOBS_BASE_DIR, entry.name);
     let mtime: number;
     try {
@@ -42,6 +49,7 @@ export function pruneOldJobs(): void {
     if (now - mtime > cutoffMs) {
       try {
         fs.rmSync(dirPath, { recursive: true, force: true });
+        console.log(`[Job Retention] Pruned expired job: ${entry.name}`);
         pruned++;
       } catch {
         errors++;

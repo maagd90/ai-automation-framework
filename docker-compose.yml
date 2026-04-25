@@ -1,30 +1,42 @@
 version: '3.8'
 
 services:
-  agent-api:
+  # ── API (Playwright + agent-core CLI) ─────────────────────────────────────────
+  api:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: ai-agent-platform:local
+      dockerfile: ai-agent-platform/apps/agent-api/Dockerfile
+    image: ai-agent-api:local
     container_name: agent-api
     ports:
       - '3001:3001'
     environment:
       PORT: '3001'
-      # Playwright — use pre-installed browsers from the base image
+      # Playwright — use pre-installed browsers from the Playwright base image
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      # Concurrency — conservative defaults for local smoke testing
-      MAX_GLOBAL_AGENTS: '2'
-      MAX_PARALLEL_AGENTS_PER_JOB: '1'
-      # Skip per-job npm install; use the platform runtime (INSTALL_GENERATED_PROJECT_DEPS=false)
+      # Skip per-job npm install; use the platform runtime
       INSTALL_GENERATED_PROJECT_DEPS: 'false'
-      # CORS — add your UI origin if serving separately
+      # Concurrency — conservative defaults for MacBook Air 8 GB demo
+      MAX_GLOBAL_AGENTS: '1'
+      MAX_PARALLEL_AGENTS_PER_JOB: '1'
+      MAX_TEST_CASES_PER_JOB: '5'
+      # Feature flags — enable AI providers; disable heavy optional features
+      ENABLE_AI_PROVIDERS: 'true'
+      ENABLE_LOCAL_LLM: 'false'
+      ENABLE_TRACE_VIDEO: 'false'
+      # CORS — allow the UI container
       ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
       JOBS_DIR: /tmp/jobs
-    # Persist job artifacts across container restarts
+      JOB_RETENTION_HOURS: '24'
+    env_file:
+      # Optional: create a .env file from .env.example to inject GEMINI_API_KEY etc.
+      # The file is .gitignored; never commit actual secrets.
+      - path: .env
+        required: false
     volumes:
-      - jobs_data:/tmp/jobs
+      # Persist job artifacts across container restarts
+      - ai-agent-jobs:/tmp/jobs
     restart: unless-stopped
     healthcheck:
       test:
@@ -36,21 +48,22 @@ services:
       retries: 3
       start_period: 20s
 
-  # Optional: serve the pre-built UI as static files.
-  # Build the UI locally first: cd ai-agent-platform && npm run build:ui
-  # Then uncomment this service and mount the dist directory.
-  #
-  # agent-ui:
-  #   image: nginx:alpine
-  #   container_name: agent-ui
-  #   ports:
-  #     - '5173:80'
-  #   volumes:
-  #     - ./ai-agent-platform/apps/agent-ui/dist:/usr/share/nginx/html:ro
-  #   depends_on:
-  #     agent-api:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+  # ── UI (React + Vite preview) ─────────────────────────────────────────────────
+  ui:
+    build:
+      context: .
+      dockerfile: ai-agent-platform/apps/agent-ui/Dockerfile
+    image: ai-agent-ui:local
+    container_name: agent-ui
+    ports:
+      - '5173:5173'
+    environment:
+      # Point the browser-side API client at the host-mapped API port
+      VITE_API_BASE_URL: 'http://localhost:3001/api'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
-  jobs_data:
+  ai-agent-jobs:
