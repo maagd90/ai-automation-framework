@@ -1,4 +1,4 @@
-import type { AiUsageSummary, BatchReport, ExecutionMode } from '@ai-agent/shared-types';
+import type { AiUsageSummary, BatchReport, ExecutionMode, FailureAnalysis } from '@ai-agent/shared-types';
 import type { ChildRunResult } from './ChildJobRunner';
 
 export class BatchReportService {
@@ -9,8 +9,9 @@ export class BatchReportService {
     executionMode?: ExecutionMode;
     testRunExitCode?: number;
     aiUsage?: AiUsageSummary;
+    failureAnalysis?: FailureAnalysis;
   }): BatchReport {
-    const { startedAt, childResults, parallelAgents, executionMode, testRunExitCode, aiUsage } = params;
+    const { startedAt, childResults, parallelAgents, executionMode, testRunExitCode, aiUsage, failureAnalysis } = params;
     const totalCases = childResults.length;
     const generationPassed = childResults.filter((r) => r.exitCode === 0).length;
     const generationFailed = totalCases - generationPassed;
@@ -52,6 +53,7 @@ export class BatchReportService {
       durationMs,
       parallelAgents,
       aiUsage,
+      failureAnalysis,
       summary,
     };
   }

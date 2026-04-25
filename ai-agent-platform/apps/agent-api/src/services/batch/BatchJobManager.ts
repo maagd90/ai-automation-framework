@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
-import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
+import type { AiConfig, AiUsageSummary, FailureAnalysis } from '@ai-agent/shared-types';
+import { AiPromptService, AiProviderFactory, TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR, REPO_ROOT_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
@@ -16,6 +16,7 @@ export class BatchJobManager {
   private readonly pool = new AgentPoolManager();
   private readonly merger = new ProjectMerger();
   private readonly reporter = new BatchReportService();
+  private readonly aiPromptService = new AiPromptService();
 
   async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
@@ -109,14 +110,19 @@ export class BatchJobManager {
 
       // ── Optionally run tests ───────────────────────────────────────────────
       let testRunExitCode = 0;
+      let failureAnalysis: FailureAnalysis | undefined;
       if (job.executionMode === 'generate-and-execute') {
         log('Execution mode: Generate + Execute — running Playwright tests…');
-        testRunExitCode = await this.runPlaywright(finalDir, log);
+        const testResult = await this.runPlaywright(finalDir, log);
+        testRunExitCode = testResult.exitCode;
+        if (testRunExitCode !== 0) {
+          failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
+        }
         log(`Playwright exit code: ${testRunExitCode}`);
       }
 
       // ── Report ────────────────────────────────────────────────────────────
-      const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
+      const aiUsage = this.buildAiUsageSummary(aiConfig, childResults, failureAnalysis !== undefined);
 
       const report = this.reporter.build({
         startedAt,
@@ -125,6 +131,7 @@ export class BatchJobManager {
         executionMode: job.executionMode,
         testRunExitCode,
         aiUsage,
+        failureAnalysis,
       });
       job.report = report;
 
@@ -168,8 +175,13 @@ export class BatchJobManager {
    * When INSTALL_GENERATED_PROJECT_DEPS=true, deps are installed inside the
    * generated project first and `npm test` is run from there.
    */
-  private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
-    return new Promise<number>((resolve) => {
+  private runPlaywright(
+    projectDir: string,
+    log: (msg: string) => void,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    return new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) => {
+      let stdout = '';
+      let stderr = '';
       if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
         log('Skipping npm install in generated project (INSTALL_GENERATED_PROJECT_DEPS=false)');
         log('Running tests via platform Playwright runtime…');
@@ -186,19 +198,22 @@ export class BatchJobManager {
         });
 
         testChild.stdout.on('data', (data: Buffer) => {
-          data.toString().split('\n').filter(Boolean).forEach(log);
+          const text = data.toString();
+          stdout += text;
+          text.split('\n').filter(Boolean).forEach(log);
         });
 
         testChild.stderr.on('data', (data: Buffer) => {
-          data
-            .toString()
+          const text = data.toString();
+          stderr += text;
+          text
             .split('\n')
             .filter(Boolean)
             .forEach((l) => log(`[TEST STDERR] ${l}`));
         });
 
-        testChild.on('close', (testCode) => resolve(testCode ?? 1));
-        testChild.on('error', () => resolve(1));
+        testChild.on('close', (testCode) => resolve({ exitCode: testCode ?? 1, stdout, stderr }));
+        testChild.on('error', () => resolve({ exitCode: 1, stdout, stderr }));
         return;
       }
 
@@ -214,19 +229,22 @@ export class BatchJobManager {
         });
 
         testChild.stdout.on('data', (data: Buffer) => {
-          data.toString().split('\n').filter(Boolean).forEach(log);
+          const text = data.toString();
+          stdout += text;
+          text.split('\n').filter(Boolean).forEach(log);
         });
 
         testChild.stderr.on('data', (data: Buffer) => {
-          data
-            .toString()
+          const text = data.toString();
+          stderr += text;
+          text
             .split('\n')
             .filter(Boolean)
             .forEach((l) => log(`[TEST STDERR] ${l}`));
         });
 
-        testChild.on('close', (testCode) => resolve(testCode ?? 1));
-        testChild.on('error', () => resolve(1));
+        testChild.on('close', (testCode) => resolve({ exitCode: testCode ?? 1, stdout, stderr }));
+        testChild.on('error', () => resolve({ exitCode: 1, stdout, stderr }));
       };
 
       const child = spawn('npm', ['install'], {
@@ -253,16 +271,57 @@ export class BatchJobManager {
 
       child.on('close', (code) => {
         if ((code ?? 1) !== 0) {
-          resolve(code ?? 1);
+          resolve({ exitCode: code ?? 1, stdout, stderr });
           return;
         }
         installAndRunTests();
       });
-      child.on('error', () => resolve(1));
+      child.on('error', () => resolve({ exitCode: 1, stdout, stderr }));
     });
   }
 
-  private buildAiUsageSummary(aiConfig: AiConfig | undefined, childResults: Array<{ aiUsage?: AiUsageSummary }>): AiUsageSummary {
+  private async analyzeFailure(
+    stderr: string,
+    stdout: string,
+    aiConfig: AiConfig | undefined,
+    log: (msg: string) => void,
+  ): Promise<FailureAnalysis | undefined> {
+    if (!aiConfig?.usedFor?.failureAnalysis || aiConfig.provider === 'none') {
+      return undefined;
+    }
+
+    try {
+      const provider = AiProviderFactory.create(aiConfig);
+      const response = await provider.complete({
+        prompt: this.aiPromptService.buildFailureAnalysisPrompt(
+          this.sanitizeLogs(stderr),
+          this.sanitizeLogs(stdout),
+        ),
+        maxTokens: 256,
+      });
+      const parsed = JSON.parse(this.extractJsonObject(response.text)) as FailureAnalysis;
+      if (!parsed.category || !parsed.summary || !parsed.suggestedFix) {
+        return undefined;
+      }
+      log(`AI failure analysis: ${parsed.category} — ${parsed.summary}`);
+      return parsed;
+    } catch (error) {
+      const warning = error instanceof Error ? error.message : String(error);
+      log(`AI failure analysis unavailable: ${warning}`);
+      return {
+        category: 'ai-unavailable',
+        summary: 'AI failure analysis was unavailable; inspect the generated test logs.',
+        suggestedFix: 'Review the generated test stdout/stderr and retry when the configured AI provider is reachable.',
+        warning,
+      };
+    }
+  }
+
+  private buildAiUsageSummary(
+    aiConfig: AiConfig | undefined,
+    childResults: Array<{ aiUsage?: AiUsageSummary }>,
+    usedFailureAnalysis = false,
+  ): AiUsageSummary {
     const childUsage = childResults
       .map((result) => result.aiUsage)
       .filter((usage): usage is AiUsageSummary => Boolean(usage));
@@ -270,11 +329,32 @@ export class BatchJobManager {
     return {
       provider: childUsage[0]?.provider ?? aiConfig?.provider ?? 'none',
       model: childUsage[0]?.model ?? aiConfig?.model,
-      calls: childUsage.reduce((sum, usage) => sum + usage.calls, 0),
+      calls: childUsage.reduce((sum, usage) => sum + usage.calls, 0) + (usedFailureAnalysis ? 1 : 0),
       parsingCalls: childUsage.reduce((sum, usage) => sum + usage.parsingCalls, 0),
       namingCalls: childUsage.reduce((sum, usage) => sum + usage.namingCalls, 0),
-      failureAnalysisCalls: childUsage.reduce((sum, usage) => sum + usage.failureAnalysisCalls, 0),
+      failureAnalysisCalls: childUsage.reduce((sum, usage) => sum + usage.failureAnalysisCalls, 0) + (usedFailureAnalysis ? 1 : 0),
     };
+  }
+
+  private sanitizeLogs(text: string): string {
+    return text
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
+      .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .replace(/api[_-]?key["'=:\s]+[A-Za-z0-9._-]+/gi, 'apiKey=[REDACTED]')
+      .replace(/[A-Za-z0-9._%+-]+:[^@\s]+@/g, '[REDACTED_CREDENTIALS]@')
+      .slice(0, 4000);
+  }
+
+  private extractJsonObject(text: string): string {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{')) {
+      return trimmed;
+    }
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw new Error('AI response did not contain JSON');
+    }
+    return match[0];
   }
 }
 

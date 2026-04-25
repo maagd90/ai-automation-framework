@@ -1,6 +1,7 @@
 import type { TestCase } from '../domain/TestCase.js';
 import type { GeneratedTestArtifact } from '../domain/GeneratedTestArtifact.js';
 import type { LocatorResult } from '../domain/LocatorResult.js';
+import type { AiSupportService } from '../ai/AiSupportService.js';
 import { PageObjectGenerator } from './PageObjectGenerator.js';
 import { SpecGenerator } from './SpecGenerator.js';
 import { JsonArtifactStore } from '../storage/JsonArtifactStore.js';
@@ -18,8 +19,12 @@ export class CodeGenerationService {
     url: string,
     locators: LocatorResult[],
     outputDir: string,
+    aiSupport?: AiSupportService,
   ): Promise<GeneratedTestArtifact> {
-    const actionableLocators = locators.filter((locator) => !this.isPreconditionStep(locator.stepTarget));
+    const actionableLocators = await this.applyMethodNames(
+      locators.filter((locator) => !this.isPreconditionStep(locator.stepTarget)),
+      aiSupport,
+    );
     const pageName = this.resolvePageName(url, testCase.name);
     this.logger.info(`Generating code artifacts for: ${testCase.name}`);
 
@@ -50,6 +55,26 @@ export class CodeGenerationService {
     };
 
     return artifact;
+  }
+
+  private async applyMethodNames(
+    locators: LocatorResult[],
+    aiSupport?: AiSupportService,
+  ): Promise<LocatorResult[]> {
+    if (!aiSupport?.canUseNaming()) {
+      return locators;
+    }
+
+    const nextLocators: LocatorResult[] = [];
+    for (const locator of locators) {
+      const deterministic = StringUtils.toMethodName(locator.action, locator.stepTarget);
+      let methodName = deterministic;
+      if (StringUtils.isPoorMethodName(deterministic)) {
+        methodName = (await aiSupport.suggestMethodName(locator.action, locator.stepTarget)) ?? deterministic;
+      }
+      nextLocators.push({ ...locator, methodName });
+    }
+    return nextLocators;
   }
 
   private resolvePageName(url: string, fallbackName: string): string {

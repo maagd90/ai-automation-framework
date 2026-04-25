@@ -10,6 +10,7 @@ export type { SplitResult } from './parsers/TestCaseSplitter';
 
 // AI
 export { AiProviderFactory } from './ai/AiProviderFactory';
+export { AiPromptService } from './ai/AiPromptService';
 export type { IAiProvider, AiCompletionRequest, AiCompletionResponse } from './ai/providers/AiProviders';
 export {
   NoOpProvider,

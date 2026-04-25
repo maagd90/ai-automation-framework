@@ -35,7 +35,7 @@ export class SpecGenerator {
     FileUtils.writeFile(dataPath, JSON.stringify(testData, null, 2));
 
     for (const [index, locator] of actionableLocators.entries()) {
-      const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
+      const methodName = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
       const step = testCase.steps[index] ?? testCase.steps.find(s => s.target === locator.stepTarget);
       switch (locator.action) {
         case 'enter': {
@@ -104,8 +104,8 @@ ${assertionLines.map(l => `  ${l.trim()}`).join('\n')}
         validUser.password = step.value;
       }
 
-      const key = StringUtils.toCamelCase(
-        StringUtils.toMethodName(locator.action, locator.stepTarget).replace(/^enter/, ''),
+        const key = StringUtils.toCamelCase(
+        (locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget)).replace(/^enter/, ''),
       );
       inputs[key || `input${index + 1}`] = step.value;
     }

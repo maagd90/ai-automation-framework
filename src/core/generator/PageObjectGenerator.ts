@@ -39,7 +39,7 @@ ${methods}
   }
 
   private renderMethod(locator: LocatorResult): string {
-    const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
+    const methodName = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
     const locatorExpr = this.renderLocatorExpression(locator.primaryLocator);
 
     switch (locator.action) {
