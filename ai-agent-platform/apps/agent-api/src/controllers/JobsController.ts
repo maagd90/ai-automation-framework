@@ -6,8 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { jobStore } from '../services/JobStore';
 import { batchJobManager } from '../services/batch/BatchJobManager';
 import { zipService } from '../services/ZipService';
+import { ipRateLimiter } from '../services/IpRateLimiter';
 import { JobEntity } from '../domain/Job';
 import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
+import { runtimeConfig } from '../config/runtime.config';
+import { featureFlags } from '../config/feature.config';
 import { CreateJobSchema } from '../validation/schemas';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
@@ -25,6 +28,15 @@ const EXT_TO_LABEL: Readonly<Record<string, string>> = {
 
 export class JobsController {
   createJob(req: Request, res: Response): void {
+    // ── Per-IP daily rate limit ──────────────────────────────────────────────
+    const clientIp = req.ip ?? 'unknown';
+    if (!ipRateLimiter.tryConsume(clientIp)) {
+      res.status(429).json({
+        error: `Daily job limit reached (${runtimeConfig.MAX_DAILY_JOBS_PER_IP} jobs/day per IP). Try again tomorrow.`,
+      });
+      return;
+    }
+
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: 'No file uploaded' });
@@ -66,9 +78,7 @@ export class JobsController {
       parallelAgents,
       retryCount,
       screenshotOnFailure,
-      traceOnFailure,
-      videoOnFailure,
-      provider,
+      provider: rawProvider,
       apiKey,
       model,
       baseUrl,
@@ -76,6 +86,18 @@ export class JobsController {
       usedForNaming,
       usedForFailureAnalysis,
     } = parsed.data;
+
+    let { traceOnFailure, videoOnFailure } = parsed.data;
+
+    // ── Feature flag enforcement ─────────────────────────────────────────────
+    // If AI providers are disabled server-side, ignore any requested provider.
+    const provider = featureFlags.ENABLE_AI_PROVIDERS ? rawProvider : 'none';
+
+    // If trace/video capture is disabled, silently override to false.
+    if (!featureFlags.ENABLE_TRACE_VIDEO) {
+      traceOnFailure = false;
+      videoOnFailure = false;
+    }
 
     const jobId = uuidv4();
     // inputDir is derived entirely from server-controlled values (JOBS_BASE_DIR + uuid)

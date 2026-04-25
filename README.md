@@ -103,7 +103,47 @@ The React UI is not included in the API Docker image. To serve the UI:
 
 Or run the Vite dev server separately and point it at `http://localhost:3001`.
 
+## Demo Deployment Defaults
 
+The following settings keep hosting cheap and prevent abuse for a public Phase 1 demo. Copy them into your `.env` (or Docker/Compose env) before going live:
+
+```env
+# Concurrency
+MAX_GLOBAL_AGENTS=1
+MAX_PARALLEL_AGENTS_PER_JOB=1
+
+# Cost/abuse guards
+MAX_TEST_CASES_PER_JOB=5
+MAX_DAILY_JOBS_PER_IP=20
+JOB_RETENTION_HOURS=24
+
+# Runtime
+INSTALL_GENERATED_PROJECT_DEPS=false
+PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# Feature flags — all off for Phase 1 demo
+ENABLE_AI_PROVIDERS=false
+ENABLE_LOCAL_LLM=false
+ENABLE_TRACE_VIDEO=false
+ENABLE_BATCH_LARGE_UPLOAD=false
+ENABLE_ADMIN_PANEL=false
+```
+
+### Feature flag reference
+
+| Flag | Default | Effect when `true` |
+|---|---|---|
+| `ENABLE_AI_PROVIDERS` | `false` | Unlocks OpenAI / Gemini / Azure provider selection in UI and API |
+| `ENABLE_LOCAL_LLM` | `false` | Adds local LLM (Ollama/vLLM) option (requires `ENABLE_AI_PROVIDERS`) |
+| `ENABLE_TRACE_VIDEO` | `false` | Allows trace and video capture on failure |
+| `ENABLE_BATCH_LARGE_UPLOAD` | `false` | Allows batches larger than `MAX_TEST_CASES_PER_JOB` |
+| `ENABLE_ADMIN_PANEL` | `false` | Reserved for Phase 2 admin panel |
+
+### Phase roadmap
+
+- **Phase 1** — env-based feature flags (this release)
+- **Phase 2** — admin panel: per-feature toggle, user/plan limits
+- **Phase 3** — billing / subscription integration
 
 ## Available Commands
 

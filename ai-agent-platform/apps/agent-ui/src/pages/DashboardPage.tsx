@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { PlayIcon, AlertCircleIcon } from 'lucide-react';
@@ -8,10 +8,22 @@ import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
+import { fetchServerConfig, DEFAULT_SERVER_CONFIG } from '../api/config';
+import type { ServerConfig } from '../api/config';
 import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+
+  // Server feature flags — fetched once on mount
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(DEFAULT_SERVER_CONFIG);
+  useEffect(() => {
+    fetchServerConfig()
+      .then(setServerConfig)
+      .catch(() => {
+        console.warn('[DashboardPage] Failed to fetch server config — using safe defaults.');
+      });
+  }, []);
 
   // Test input
   const [file, setFile] = useState<File | null>(null);
@@ -177,6 +189,7 @@ export default function DashboardPage() {
             onUsedForNamingChange={setUsedForNaming}
             usedForFailureAnalysis={usedForFailureAnalysis}
             onUsedForFailureAnalysisChange={setUsedForFailureAnalysis}
+            features={serverConfig.features}
           />
         </section>
 

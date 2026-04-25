@@ -51,6 +51,16 @@ export class BatchJobManager {
       }
 
       log(`Parsed ${batch.testCases.length} test case(s) from "${batch.batchName}"`);
+
+      // ── Demo/cost guard: enforce per-job test-case cap ────────────────────
+      if (batch.testCases.length > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
+        throw new Error(
+          `This job contains ${batch.testCases.length} test case(s), which exceeds the ` +
+          `per-job limit of ${runtimeConfig.MAX_TEST_CASES_PER_JOB}. ` +
+          `Split the file into smaller batches or increase MAX_TEST_CASES_PER_JOB.`,
+        );
+      }
+
       job.totalCases = batch.testCases.length;
       job.processedCases = 0;
       jobStore.set(job);
