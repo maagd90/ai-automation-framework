@@ -6,11 +6,14 @@ import { checkPlaywrightReadiness } from './services/PlaywrightReadinessCheck';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
+const trustProxy = process.env.TRUST_PROXY ?? '1';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS
   ?? 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+app.set('trust proxy', trustProxy === 'true' || trustProxy === '1' ? 1 : false);
 
 app.use(
   cors({
@@ -36,6 +39,10 @@ app.use('/api/', apiLimiter);
 app.use('/api/jobs', jobsRouter);
 
 app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 

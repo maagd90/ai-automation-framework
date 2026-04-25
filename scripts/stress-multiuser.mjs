@@ -111,6 +111,15 @@ async function ensureReachable(url, label) {
   }
 }
 
+async function isReachable(url) {
+  try {
+    const res = await fetch(url);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 const managedProcs = [];
 
 function spawnManaged(cmd, args, opts) {
@@ -146,23 +155,37 @@ async function startServices() {
   const selfManaged = process.env.SELF_MANAGED !== 'false';
   if (!selfManaged) return;
 
-  console.log('[stress] Auto-starting Agent API and Demo Server...');
+  const apiHealthUrl = `${apiBase}/health`;
+  const demoHealthUrl = targetUrl;
 
-  spawnManaged('npm', ['run', 'dev:api'], {
-    cwd: platformRoot,
-    label: 'agent-api',
-    env: { ...process.env, NODE_ENV: 'development' },
-  });
+  const apiUp = await isReachable(apiHealthUrl);
+  const demoUp = await isReachable(demoHealthUrl);
 
-  spawnManaged('node', ['scripts/demo-server.mjs'], {
-    cwd: repoRoot,
-    label: 'demo-server',
-    env: { ...process.env, PORT: '4000' },
-  });
+  if (!apiUp) {
+    console.log('[stress] Agent API not reachable. Auto-starting...');
+    spawnManaged('npm', ['run', 'dev:api'], {
+      cwd: platformRoot,
+      label: 'agent-api',
+      env: { ...process.env, NODE_ENV: 'development' },
+    });
+  } else {
+    console.log(`[stress] Agent API already reachable at ${apiHealthUrl}`);
+  }
+
+  if (!demoUp) {
+    console.log('[stress] Demo server not reachable. Auto-starting...');
+    spawnManaged('node', ['scripts/demo-server.mjs'], {
+      cwd: repoRoot,
+      label: 'demo-server',
+      env: { ...process.env, PORT: '4000' },
+    });
+  } else {
+    console.log(`[stress] Demo server already reachable at ${demoHealthUrl}`);
+  }
 
   await Promise.all([
-    pollReady(`${apiBase}/health`, 'Agent API', { maxWaitMs: 60_000 }),
-    pollReady('http://localhost:4000/login', 'Demo Server', { maxWaitMs: 30_000 }),
+    pollReady(apiHealthUrl, 'Agent API', { maxWaitMs: 60_000 }),
+    pollReady(demoHealthUrl, 'Demo Server', { maxWaitMs: 30_000 }),
   ]);
 }
 

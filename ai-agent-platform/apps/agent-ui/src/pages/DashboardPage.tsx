@@ -49,6 +49,25 @@ export default function DashboardPage() {
           setValidationError(response.error);
           return;
         }
+
+        if (!error.response) {
+          setValidationError(
+            'Cannot reach Agent API. Start "Start Agent API" task and retry.',
+          );
+          return;
+        }
+
+        if (error.response.status >= 500) {
+          setValidationError(
+            `Agent API error (${error.response.status}). Check API terminal logs and retry.`,
+          );
+          return;
+        }
+
+        setValidationError(
+          `Request failed (${error.response.status}). Verify API is running and reachable.`,
+        );
+        return;
       }
       setValidationError('Failed to create job. Please try again.');
     },

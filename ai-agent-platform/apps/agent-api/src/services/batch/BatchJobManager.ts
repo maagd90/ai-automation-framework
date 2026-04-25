@@ -7,6 +7,7 @@ import { JOBS_BASE_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
+import { playwrightReady } from '../PlaywrightReadinessCheck';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ProjectMerger } from './ProjectMerger';
 import { BatchReportService } from './BatchReportService';
@@ -54,6 +55,14 @@ export class BatchJobManager {
       job.processedCases = 0;
       jobStore.set(job);
 
+      // ── Playwright browser pre-flight ─────────────────────────────────────
+      if (!playwrightReady()) {
+        throw new Error(
+          '[PLAYWRIGHT_RUNTIME_MISSING_DEPS] Chromium browser is not available on this server. ' +
+          'Run: npx playwright install --with-deps chromium',
+        );
+      }
+
       // ── Split ─────────────────────────────────────────────────────────────
       const splitsDir = path.join(JOBS_BASE_DIR, job.jobId, 'splits');
       const splitter = new TestCaseSplitter();
@@ -76,7 +85,7 @@ export class BatchJobManager {
           .map((r) => `${r.childId}: exit ${r.exitCode}`)
           .join(', ');
         throw new Error(
-          `Generation failed for ${failedChildren.length} child job(s): ${summary}. Check logs for details. If logs mention missing Playwright browser executable, run \"npx playwright install\" in the repository root.`,
+          `Generation failed for ${failedChildren.length} child job(s): ${summary}. Check the job logs for details.`,
         );
       }
 
