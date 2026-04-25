@@ -8,6 +8,18 @@ export interface SplitResult {
   testCase: TestCase;
 }
 
+interface RootCliTestCase {
+  name: string;
+  preconditions: string[];
+  steps: Array<{
+    order: number;
+    action: string;
+    target: string;
+    value?: string;
+  }>;
+  expectedResults: string[];
+}
+
 /**
  * Writes each TestCase in a batch to an isolated child JSON file.
  *
@@ -25,32 +37,17 @@ export class TestCaseSplitter {
     });
   }
 
-  private toRootCliTestCase(testCase: TestCase): {
-    name: string;
-    preconditions: string[];
-    steps: Array<{
-      order: number;
-      action: string;
-      target: string;
-      value?: string;
-    }>;
-    expectedResults: string[];
-  } {
-    const maybeRootCompatible = testCase as TestCase & {
-      preconditions?: string[];
-      expectedResults?: string[];
-    };
-
+  private toRootCliTestCase(testCase: TestCase): RootCliTestCase {
     return {
       name: testCase.name,
-      preconditions: maybeRootCompatible.preconditions ?? [],
+      preconditions: testCase.preconditions ?? [],
       steps: testCase.steps.map((step) => ({
         order: step.order,
         action: step.action,
         target: step.target ?? '',
         ...(step.value !== undefined ? { value: step.value } : {}),
       })),
-      expectedResults: maybeRootCompatible.expectedResults ?? [],
+      expectedResults: testCase.expectedResults ?? [],
     };
   }
 }
