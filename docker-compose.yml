@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-agent-platform:local
+    container_name: agent-api
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: '3001'
+      # Playwright — use pre-installed browsers from the base image
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Concurrency — conservative defaults for local smoke testing
+      MAX_GLOBAL_AGENTS: '2'
+      MAX_PARALLEL_AGENTS_PER_JOB: '1'
+      # Skip per-job npm install; use the platform runtime (INSTALL_GENERATED_PROJECT_DEPS=false)
+      INSTALL_GENERATED_PROJECT_DEPS: 'false'
+      # CORS — add your UI origin if serving separately
+      ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
+      JOBS_DIR: /tmp/jobs
+    # Persist job artifacts across container restarts
+    volumes:
+      - jobs_data:/tmp/jobs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - /app/scripts/docker-healthcheck.js
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Optional: serve the pre-built UI as static files.
+  # Build the UI locally first: cd ai-agent-platform && npm run build:ui
+  # Then uncomment this service and mount the dist directory.
+  #
+  # agent-ui:
+  #   image: nginx:alpine
+  #   container_name: agent-ui
+  #   ports:
+  #     - '5173:80'
+  #   volumes:
+  #     - ./ai-agent-platform/apps/agent-ui/dist:/usr/share/nginx/html:ro
+  #   depends_on:
+  #     agent-api:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+volumes:
+  jobs_data:

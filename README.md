@@ -17,6 +17,94 @@ npm install
 npm run build
 ```
 
+## Docker Deployment (Phase 1)
+
+The API server runs Playwright and Chromium. The official Playwright Docker image ships with all required browser binaries and system libraries pre-installed, so no browser download is needed at runtime.
+
+### Build the image
+
+```bash
+docker build -t ai-agent-platform:local .
+```
+
+### Run with Docker Compose (recommended for local smoke testing)
+
+```bash
+docker compose up
+```
+
+The API will be available at `http://localhost:3001`. Job artifacts are persisted in the `jobs_data` Docker volume.
+
+### Run the container directly
+
+```bash
+docker run -d \
+  --name agent-api \
+  -p 3001:3001 \
+  -e MAX_GLOBAL_AGENTS=2 \
+  -e MAX_PARALLEL_AGENTS_PER_JOB=1 \
+  -e INSTALL_GENERATED_PROJECT_DEPS=false \
+  -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+  -e JOBS_DIR=/tmp/jobs \
+  -v agent_jobs:/tmp/jobs \
+  ai-agent-platform:local
+```
+
+### Key environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MAX_GLOBAL_AGENTS` | `3` | Hard cap on concurrent Playwright/Node child processes across all jobs |
+| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job cap to prevent a single job from monopolising agents |
+| `INSTALL_GENERATED_PROJECT_DEPS` | `false` | If `false`, tests are run via the platform Playwright runtime (no per-job `npm install`). Set `true` only when the generated project must resolve its own deps. |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Pre-installed browser location inside the image |
+| `JOBS_DIR` | `/tmp/jobs` | Directory for job artifacts; mount a volume here to persist across restarts |
+| `PORT` | `3001` | API listen port |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins |
+
+### Memory planning
+
+Each headless Chromium process uses roughly 200–500 MB of RAM depending on page complexity. Each child Node/agent process adds roughly 50–150 MB.
+
+**Conservative planning formula:**
+
+```
+requiredMemory ≈ baseAPI (~256 MB) + MAX_GLOBAL_AGENTS × 500 MB + buffer
+```
+
+| Available RAM | Recommended `MAX_GLOBAL_AGENTS` |
+|---|---|
+| 1–2 GB | 1 |
+| 2–4 GB | 2–3 |
+| 8 GB | Up to 5 |
+
+The API logs the estimated peak memory on startup:
+
+```
+[Runtime Config]
+  MAX_GLOBAL_AGENTS           = 2
+  MAX_PARALLEL_AGENTS_PER_JOB = 1
+  INSTALL_GENERATED_PROJECT_DEPS = false
+  PLAYWRIGHT_BROWSERS_PATH    = /ms-playwright
+  Detected memory             = 2048 MB (container limit)
+  Estimated peak memory usage ≈ 1256 MB
+    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~500 MB/agent)
+```
+
+### UI (optional)
+
+The React UI is not included in the API Docker image. To serve the UI:
+
+1. Build it locally:
+   ```bash
+   cd ai-agent-platform && npm run build:ui
+   ```
+2. Uncomment the `agent-ui` service in `docker-compose.yml` and start with `docker compose up`.
+
+Or run the Vite dev server separately and point it at `http://localhost:3001`.
+
+
+
 ## Available Commands
 
 ### `generate` — Full pipeline: parse test case → inspect URL → generate code
