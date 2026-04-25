@@ -102,7 +102,7 @@ export class ChildJobRunner {
 
         if (isMissingDepsError(text)) {
           appendLog(
-            '[ERROR] Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS — ' +
+            '[ERROR] Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS - ' +
             'Chromium browser dependencies are missing in this environment. ' +
             'Suggested fix: run "npx playwright install --with-deps chromium" once during environment setup.',
           );

@@ -52,7 +52,7 @@ export default function DashboardPage() {
 
         if (!error.response) {
           setValidationError(
-            'Cannot reach Agent API. Start "Start Agent API" task and retry.',
+            "Cannot reach Agent API. Run the 'Start Agent API' task and retry.",
           );
           return;
         }

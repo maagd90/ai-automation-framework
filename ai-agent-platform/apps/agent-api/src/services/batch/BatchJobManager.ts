@@ -58,7 +58,7 @@ export class BatchJobManager {
       // ── Playwright browser pre-flight ─────────────────────────────────────
       if (!playwrightReady()) {
         throw new Error(
-          '[PLAYWRIGHT_RUNTIME_MISSING_DEPS] Chromium browser is not available on this server. ' +
+          'Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS. Chromium browser is not available on this server. ' +
           'Run: npx playwright install --with-deps chromium',
         );
       }

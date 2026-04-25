@@ -17,15 +17,11 @@ const acquireGlobalSlot = async (onAcquire: (active: number, max: number) => voi
 
   GLOBAL_ACTIVE_AGENTS += 1;
   onAcquire(GLOBAL_ACTIVE_AGENTS, runtimeConfig.MAX_GLOBAL_AGENTS);
-  console.log('Global active agents:', GLOBAL_ACTIVE_AGENTS);
-  console.log('Max allowed:', runtimeConfig.MAX_GLOBAL_AGENTS);
 };
 
 const releaseGlobalSlot = (onRelease: (active: number, max: number) => void): void => {
   GLOBAL_ACTIVE_AGENTS = Math.max(0, GLOBAL_ACTIVE_AGENTS - 1);
   onRelease(GLOBAL_ACTIVE_AGENTS, runtimeConfig.MAX_GLOBAL_AGENTS);
-  console.log('Global active agents:', GLOBAL_ACTIVE_AGENTS);
-  console.log('Max allowed:', runtimeConfig.MAX_GLOBAL_AGENTS);
 };
 
 export class AgentPoolManager {

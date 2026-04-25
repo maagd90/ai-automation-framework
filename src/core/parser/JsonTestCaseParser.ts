@@ -23,7 +23,7 @@ const TestCaseSchema = z.object({
   expectedResults: z.array(z.string()).default([]),
 });
 
-const VALID_ACTIONS = new Set(ActionTypeSchema.options);
+const VALID_ACTIONS = new Set<string>(ActionTypeSchema.options);
 
 interface StepLike {
   order?: number;
@@ -67,7 +67,7 @@ export class JsonTestCaseParser implements TestCaseParser {
     const stepObj = step as StepLike;
     const order = typeof stepObj.order === 'number' ? stepObj.order : fallbackOrder;
 
-    if (typeof stepObj.action === 'string' && VALID_ACTIONS.has(stepObj.action as z.infer<typeof ActionTypeSchema>)) {
+    if (typeof stepObj.action === 'string' && VALID_ACTIONS.has(stepObj.action)) {
       return { ...stepObj, order };
     }
 
