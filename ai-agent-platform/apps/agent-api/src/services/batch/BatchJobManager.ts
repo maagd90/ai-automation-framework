@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR } from '../../config';
+import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
 import { AgentPoolManager } from './AgentPoolManager';
@@ -60,8 +61,24 @@ export class BatchJobManager {
       log(`Split into ${splits.length} child job file(s)`);
 
       // ── Execute generation in parallel ────────────────────────────────────
-      log(`Generating with ${job.parallelAgents} parallel agent(s)…`);
-      const childResults = await this.pool.runAll(job, splits, aiConfig);
+      const effectiveParallelAgents = Math.min(
+        job.parallelAgents,
+        runtimeConfig.MAX_PARALLEL_AGENTS_PER_JOB,
+      );
+      log(`Requested parallel agents: ${job.parallelAgents}`);
+      log(`Effective parallel agents (capped): ${effectiveParallelAgents}`);
+      log(`Generating with ${effectiveParallelAgents} parallel agent(s)…`);
+      const childResults = await this.pool.runAll(job, splits, effectiveParallelAgents, aiConfig);
+
+      const failedChildren = childResults.filter((r) => r.exitCode !== 0);
+      if (failedChildren.length > 0) {
+        const summary = failedChildren
+          .map((r) => `${r.childId}: exit ${r.exitCode}`)
+          .join(', ');
+        throw new Error(
+          `Generation failed for ${failedChildren.length} child job(s): ${summary}. Check logs for details. If logs mention missing Playwright browser executable, run \"npx playwright install\" in the repository root.`,
+        );
+      }
 
       // ── Merge into single project ─────────────────────────────────────────
       log('Merging generated artifacts into final-project…');
@@ -85,7 +102,7 @@ export class BatchJobManager {
       const report = this.reporter.build({
         startedAt,
         childResults,
-        parallelAgents: job.parallelAgents,
+        parallelAgents: effectiveParallelAgents,
         executionMode: job.executionMode,
         testRunExitCode,
         aiUsage,
@@ -126,12 +143,46 @@ export class BatchJobManager {
   /** Installs generated-project deps and then runs `npm test`, returning the final exit code. */
   private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
     return new Promise<number>((resolve) => {
+      const installAndRunTests = (): void => {
+        const testChild = spawn('npm', ['test'], {
+          cwd: projectDir,
+          shell: false,
+          env: {
+            ...process.env,
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+            PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
+          },
+        });
+
+        testChild.stdout.on('data', (data: Buffer) => {
+          data.toString().split('\n').filter(Boolean).forEach(log);
+        });
+
+        testChild.stderr.on('data', (data: Buffer) => {
+          data
+            .toString()
+            .split('\n')
+            .filter(Boolean)
+            .forEach((l) => log(`[TEST STDERR] ${l}`));
+        });
+
+        testChild.on('close', (testCode) => resolve(testCode ?? 1));
+        testChild.on('error', () => resolve(1));
+      };
+
+      if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
+        log('Skipping npm install in generated project (INSTALL_GENERATED_PROJECT_DEPS=false)');
+        installAndRunTests();
+        return;
+      }
+
       const child = spawn('npm', ['install'], {
         cwd: projectDir,
         shell: false,
         env: {
           ...process.env,
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+          PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
         },
       });
 
@@ -152,30 +203,7 @@ export class BatchJobManager {
           resolve(code ?? 1);
           return;
         }
-
-        const testChild = spawn('npm', ['test'], {
-          cwd: projectDir,
-          shell: false,
-          env: {
-            ...process.env,
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
-          },
-        });
-
-        testChild.stdout.on('data', (data: Buffer) => {
-          data.toString().split('\n').filter(Boolean).forEach(log);
-        });
-
-        testChild.stderr.on('data', (data: Buffer) => {
-          data
-            .toString()
-            .split('\n')
-            .filter(Boolean)
-            .forEach((l) => log(`[TEST STDERR] ${l}`));
-        });
-
-        testChild.on('close', (testCode) => resolve(testCode ?? 1));
-        testChild.on('error', () => resolve(1));
+        installAndRunTests();
       });
       child.on('error', () => resolve(1));
     });

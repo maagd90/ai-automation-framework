@@ -127,6 +127,13 @@ export default function ExecutionConfigPanel({
       {/* Evidence */}
       <div>
         <p className="text-sm font-medium text-gray-700 mb-2">Evidence</p>
+        {executionMode === 'generate-only' && (
+          <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+            Screenshot, trace, and video capture are only available in{' '}
+            <strong>Generate + Execute</strong> mode. These options are ignored in
+            Generate Only mode.
+          </p>
+        )}
         <div className="flex flex-col gap-2">
           <label className="flex items-center gap-3 cursor-pointer">
             <input

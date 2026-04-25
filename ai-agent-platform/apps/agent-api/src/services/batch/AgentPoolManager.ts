@@ -2,7 +2,31 @@ import type { SplitResult } from '@ai-agent/agent-core';
 import type { AiConfig } from '@ai-agent/shared-types';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
+import { runtimeConfig } from '../../config/runtime.config';
 import { ChildJobRunner, type ChildRunResult } from './ChildJobRunner';
+
+let GLOBAL_ACTIVE_AGENTS = 0;
+
+const sleep = async (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const acquireGlobalSlot = async (onAcquire: (active: number, max: number) => void): Promise<void> => {
+  while (GLOBAL_ACTIVE_AGENTS >= runtimeConfig.MAX_GLOBAL_AGENTS) {
+    await sleep(100);
+  }
+
+  GLOBAL_ACTIVE_AGENTS += 1;
+  onAcquire(GLOBAL_ACTIVE_AGENTS, runtimeConfig.MAX_GLOBAL_AGENTS);
+  console.log('Global active agents:', GLOBAL_ACTIVE_AGENTS);
+  console.log('Max allowed:', runtimeConfig.MAX_GLOBAL_AGENTS);
+};
+
+const releaseGlobalSlot = (onRelease: (active: number, max: number) => void): void => {
+  GLOBAL_ACTIVE_AGENTS = Math.max(0, GLOBAL_ACTIVE_AGENTS - 1);
+  onRelease(GLOBAL_ACTIVE_AGENTS, runtimeConfig.MAX_GLOBAL_AGENTS);
+  console.log('Global active agents:', GLOBAL_ACTIVE_AGENTS);
+  console.log('Max allowed:', runtimeConfig.MAX_GLOBAL_AGENTS);
+};
 
 export class AgentPoolManager {
   private readonly runner = new ChildJobRunner();
@@ -10,9 +34,10 @@ export class AgentPoolManager {
   async runAll(
     job: JobEntity,
     splits: SplitResult[],
+    requestedConcurrency: number,
     aiConfig?: AiConfig,
   ): Promise<ChildRunResult[]> {
-    const concurrency = Math.max(1, job.parallelAgents);
+    const concurrency = Math.max(1, requestedConcurrency);
     const results: ChildRunResult[] = [];
     const queue = [...splits];
 
@@ -33,7 +58,22 @@ export class AgentPoolManager {
             );
             jobStore.set(job);
           }
-          result = await this.runner.run(job, split.childId, split.filePath, aiConfig, attempt);
+          await acquireGlobalSlot((active, max) => {
+            job.addLog(
+              `[${new Date().toISOString()}] ${split.childId} acquired global slot. Global active agents: ${active}. Max allowed: ${max}`,
+            );
+            jobStore.set(job);
+          });
+          try {
+            result = await this.runner.run(job, split.childId, split.filePath, aiConfig, attempt);
+          } finally {
+            releaseGlobalSlot((active, max) => {
+              job.addLog(
+                `[${new Date().toISOString()}] ${split.childId} released global slot. Global active agents: ${active}. Max allowed: ${max}`,
+              );
+              jobStore.set(job);
+            });
+          }
         } while (result.exitCode !== 0 && attempt < maxAttempts);
 
         results.push(result);

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { jobsRouter } from './routes/jobs.router';
+import { checkPlaywrightReadiness } from './services/PlaywrightReadinessCheck';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -40,6 +41,7 @@ app.get('/health', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Agent API running on http://localhost:${PORT}`);
+  checkPlaywrightReadiness().catch(() => {/* already logged inside */});
 });
 
 export { app };

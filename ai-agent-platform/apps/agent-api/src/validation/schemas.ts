@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const ExecutionConfigSchema = z.object({
-  framework: z.string().min(1),
+  framework: z.string().min(1).default('playwright-ts'),
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),

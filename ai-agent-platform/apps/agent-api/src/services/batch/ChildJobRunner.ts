@@ -3,8 +3,26 @@ import path from 'path';
 import fs from 'fs';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
+import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
+
+const CHILD_JOB_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** Patterns that indicate Playwright's Linux system deps are missing. */
+const MISSING_DEPS_PATTERNS = [
+  /error while loading shared libraries/i,
+  /libatk/i,
+  /libgdk/i,
+  /libglib/i,
+  /libnss/i,
+  /Executable doesn't exist/i,
+  /browserType\.launch/i,
+];
+
+function isMissingDepsError(text: string): boolean {
+  return MISSING_DEPS_PATTERNS.some((p) => p.test(text));
+}
 
 export interface ChildRunResult {
   childId: string;
@@ -40,10 +58,12 @@ export class ChildJobRunner {
     ];
 
     return new Promise<ChildRunResult>((resolve, reject) => {
+      let timedOut = false;
       const child = spawn('node', args, {
         shell: false,
         env: {
           ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
           HEADLESS: String(job.headless),
           AI_ENABLED: String((aiConfig?.provider ?? 'none') !== 'none'),
           AI_PROVIDER: aiConfig?.provider ?? 'none',
@@ -57,6 +77,11 @@ export class ChildJobRunner {
         },
       });
 
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, CHILD_JOB_TIMEOUT_MS);
+
       const appendLog = (line: string): void => {
         const entry = `[${new Date().toISOString()}] [${childId}] ${line}`;
         job.addLog(entry);
@@ -69,14 +94,34 @@ export class ChildJobRunner {
       });
 
       child.stderr.on('data', (data: Buffer) => {
-        data
-          .toString()
+        const text = data.toString();
+        text
           .split('\n')
           .filter(Boolean)
           .forEach((l) => appendLog(`[STDERR] ${l}`));
+
+        if (isMissingDepsError(text)) {
+          appendLog(
+            '[ERROR] Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS — ' +
+            'Chromium browser dependencies are missing in this environment. ' +
+            'Suggested fix: run "npx playwright install --with-deps chromium" once during environment setup.',
+          );
+        }
       });
 
       child.on('close', (code) => {
+        clearTimeout(timeoutHandle);
+        if (timedOut) {
+          resolve({
+            childId,
+            exitCode: 124,
+            durationMs: Date.now() - started,
+            attempts: attempt,
+            aiUsage: this.readAiUsage(aiUsagePath),
+          });
+          return;
+        }
+
         resolve({
           childId,
           exitCode: code ?? 1,
@@ -86,7 +131,10 @@ export class ChildJobRunner {
         });
       });
 
-      child.on('error', reject);
+      child.on('error', (err) => {
+        clearTimeout(timeoutHandle);
+        reject(err);
+      });
     });
   }
 

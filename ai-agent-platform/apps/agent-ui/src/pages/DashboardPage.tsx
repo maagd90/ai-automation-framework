@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { PlayIcon, AlertCircleIcon } from 'lucide-react';
+import axios from 'axios';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
@@ -41,6 +42,16 @@ export default function DashboardPage() {
     onSuccess: (res) => {
       navigate(`/jobs/${res.jobId}`);
     },
+    onError: (error) => {
+      if (axios.isAxiosError(error)) {
+        const response = error.response?.data as { error?: string } | undefined;
+        if (response?.error) {
+          setValidationError(response.error);
+          return;
+        }
+      }
+      setValidationError('Failed to create job. Please try again.');
+    },
   });
 
   const handleSubmit = (e: FormEvent) => {
@@ -65,6 +76,7 @@ export default function DashboardPage() {
     mutation.mutate({
       file,
       url,
+      framework: 'playwright-ts',
       executionMode,
       headless,
       parallelAgents,
@@ -149,10 +161,10 @@ export default function DashboardPage() {
           />
         </section>
 
-        {(validationError || mutation.isError) && (
+        {validationError && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{validationError || 'Failed to create job. Please try again.'}</span>
+            <span>{validationError}</span>
           </div>
         )}
 
