@@ -127,17 +127,7 @@ export class DomInspector {
           parentContext: getText(htmlEl.parentElement),
           siblingContext: getSiblingContext(htmlEl),
           visible: htmlEl.offsetParent !== null,
-          enabled:
-            'disabled' in inputEl
-              ? !Boolean(
-                  (
-                    inputEl as HTMLInputElement &
-                      HTMLButtonElement &
-                      HTMLSelectElement &
-                      HTMLTextAreaElement
-                  ).disabled,
-                )
-              : true,
+          enabled: !htmlEl.matches(':disabled'),
           boundingBox:
             rect.width > 0
               ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }

@@ -189,7 +189,6 @@ export default defineConfig({
         strict: true,
         esModuleInterop: true,
         skipLibCheck: true,
-        ignoreDeprecations: '6.0',
       },
     };
     fs.writeFileSync(
