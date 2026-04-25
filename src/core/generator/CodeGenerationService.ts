@@ -19,18 +19,26 @@ export class CodeGenerationService {
     locators: LocatorResult[],
     outputDir: string,
   ): Promise<GeneratedTestArtifact> {
-    const pageName = StringUtils.toKebabCase(testCase.name.replace(/\s+/g, '-'));
+    const actionableLocators = locators.filter((locator) => !this.isPreconditionStep(locator.stepTarget));
+    const pageName = this.resolvePageName(url, testCase.name);
     this.logger.info(`Generating code artifacts for: ${testCase.name}`);
 
-    const pageObjectPath = this.pageObjectGen.generate(pageName, url, locators, outputDir);
-    const specPath = this.specGen.generate(testCase, pageName, url, locators, outputDir);
-    const locatorPath = `${outputDir}/locators/${StringUtils.toKebabCase(pageName)}.locators.json`;
+    const pageObjectPath = this.pageObjectGen.generate(pageName, url, actionableLocators, outputDir);
+    const specPath = this.specGen.generate(testCase, pageName, url, actionableLocators, outputDir);
+    const locatorPath = `${outputDir}/src/locators/${StringUtils.toKebabCase(pageName)}.locators.json`;
 
     this.store.save(locatorPath, {
       schemaVersion: '1.0.0',
+      page: StringUtils.toPascalCase(pageName),
       url,
       generatedAt: new Date().toISOString(),
-      elements: locators,
+      steps: actionableLocators.map((locator, index) => ({
+        stepOrder: index + 1,
+        stepTarget: locator.stepTarget,
+        action: locator.action,
+        primary: locator.primaryLocator,
+        fallback: locator.fallbackLocators,
+      })),
     });
 
     const artifact: GeneratedTestArtifact = {
@@ -42,5 +50,33 @@ export class CodeGenerationService {
     };
 
     return artifact;
+  }
+
+  private resolvePageName(url: string, fallbackName: string): string {
+    try {
+      const parsed = new URL(url);
+      const segments = parsed.pathname
+        .split('/')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const candidate = segments[segments.length - 1] ?? 'home';
+      return StringUtils.toKebabCase(candidate || 'home');
+    } catch {
+      return StringUtils.toKebabCase(fallbackName.replace(/\s+/g, '-')) || 'home';
+    }
+  }
+
+  private isPreconditionStep(stepText: string): boolean {
+    const normalized = StringUtils.normalize(stepText);
+    return (
+      normalized.startsWith('user is on')
+      || normalized.startsWith('user is on the')
+      || normalized.startsWith('navigate to')
+      || normalized.includes(' navigate to ')
+      || normalized.startsWith('open ')
+      || normalized.includes(' open ')
+      || (normalized.includes('page') && normalized.includes('is on'))
+    );
   }
 }

@@ -17,13 +17,19 @@ export class ProjectMerger {
       const srcDir = path.join(JOBS_BASE_DIR, job.jobId, 'children', childId, 'generated');
       if (!fs.existsSync(srcDir)) continue;
 
+      const childPagesDir = this.resolveChildSubdir(srcDir, 'pages');
+      const childTestsDir = this.resolveChildSubdir(srcDir, 'tests');
+      const childLocatorsDir = this.resolveChildSubdir(srcDir, 'locators');
+      const childDataDir = this.resolveChildSubdir(srcDir, 'test-data');
+
       const pageRenames = this.copyTypedFiles(
-        path.join(srcDir, 'pages'),
-        path.join(finalDir, 'pages'),
+        childPagesDir,
+        path.join(finalDir, 'src', 'pages'),
         childId,
       );
-      this.copyTests(path.join(srcDir, 'tests'), path.join(finalDir, 'tests'), childId, pageRenames);
-      this.copyTypedFiles(path.join(srcDir, 'locators'), path.join(finalDir, 'locators'), childId);
+      this.copyTests(childTestsDir, path.join(finalDir, 'src', 'tests'), childId, pageRenames);
+      this.copyTypedFiles(childLocatorsDir, path.join(finalDir, 'src', 'locators'), childId);
+      this.copyTypedFiles(childDataDir, path.join(finalDir, 'src', 'test-data'), childId);
     }
 
     this.scaffoldProject(finalDir, job);
@@ -35,7 +41,7 @@ export class ProjectMerger {
     const requiredPaths = [
       path.join(finalDir, 'package.json'),
       path.join(finalDir, 'playwright.config.ts'),
-      path.join(finalDir, 'tests'),
+      path.join(finalDir, 'src', 'tests'),
     ];
 
     for (const requiredPath of requiredPaths) {
@@ -44,7 +50,7 @@ export class ProjectMerger {
       }
     }
 
-    const testDir = path.join(finalDir, 'tests');
+    const testDir = path.join(finalDir, 'src', 'tests');
     const specFiles = fs.readdirSync(testDir).filter((file) => file.endsWith('.spec.ts'));
     if (specFiles.length === 0) {
       throw new Error('Merged project validation failed: no generated spec files found');
@@ -57,7 +63,7 @@ export class ProjectMerger {
 
       for (const match of matches) {
         const importTarget = match[1];
-        const pageTs = path.join(finalDir, 'pages', `${importTarget}.ts`);
+        const pageTs = path.join(finalDir, 'src', 'pages', `${importTarget}.ts`);
         if (!fs.existsSync(pageTs)) {
           throw new Error(
             `Merged project validation failed: ${specFile} imports missing page ${importTarget}.ts`,
@@ -75,6 +81,16 @@ export class ProjectMerger {
       if (!entry.isFile()) continue;
 
       const srcPath = path.join(srcDir, entry.name);
+      const existingPath = path.join(destDir, entry.name);
+      if (fs.existsSync(existingPath)) {
+        const existingContent = fs.readFileSync(existingPath, 'utf8');
+        const incomingContent = fs.readFileSync(srcPath, 'utf8');
+        if (existingContent === incomingContent) {
+          renames.set(entry.name, entry.name);
+          continue;
+        }
+      }
+
       const destName = this.resolveUniqueName(destDir, entry.name, childId);
       fs.copyFileSync(srcPath, path.join(destDir, destName));
       renames.set(entry.name, destName);
@@ -106,6 +122,12 @@ export class ProjectMerger {
     }
   }
 
+  private resolveChildSubdir(srcDir: string, section: string): string {
+    const srcBased = path.join(srcDir, 'src', section);
+    const legacy = path.join(srcDir, section);
+    return fs.existsSync(srcBased) ? srcBased : legacy;
+  }
+
   private resolveUniqueName(destDir: string, fileName: string, childId: string): string {
     const ext = path.extname(fileName);
     const base = path.basename(fileName, ext);
@@ -126,7 +148,7 @@ export class ProjectMerger {
   }
 
   private ensureProjectDirs(finalDir: string): void {
-    for (const dir of ['pages', 'tests', 'locators', 'test-data', 'reports']) {
+    for (const dir of ['src/pages', 'src/tests', 'src/locators', 'src/test-data', 'src/utils', 'src/fixtures', 'reports']) {
       fs.mkdirSync(path.join(finalDir, dir), { recursive: true });
     }
   }
@@ -159,13 +181,14 @@ export class ProjectMerger {
     const playwrightConfig = `import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: './src/tests',
   fullyParallel: false,
   forbidOnly: !!process.env['CI'],
   retries: ${job.retryCount},
   workers: 1,
   reporter: [['html', { open: 'never' }], ['line']],
   use: {
+    baseURL: process.env.BASE_URL || 'http://localhost:4000',
     headless: ${job.headless},
     screenshot: ${screenshot},
     trace: ${trace},
@@ -188,14 +211,24 @@ export default defineConfig({
         moduleResolution: 'node',
         strict: true,
         esModuleInterop: true,
+        resolveJsonModule: true,
         skipLibCheck: true,
       },
+      include: ['src/**/*'],
     };
     fs.writeFileSync(
       path.join(finalDir, 'tsconfig.json'),
       JSON.stringify(tsConfig, null, 2),
       'utf8',
     );
+
+    const waitUtil = `import type { Page } from '@playwright/test';
+
+export async function waitForPageLoad(page: Page): Promise<void> {
+  await page.waitForLoadState('networkidle');
+}
+`;
+    fs.writeFileSync(path.join(finalDir, 'src', 'utils', 'wait.util.ts'), waitUtil, 'utf8');
 
     const readme = `# Generated Playwright Project
 
@@ -211,7 +244,7 @@ npx playwright install
 ## Run Tests
 
 \`\`\`bash
-npm test
+BASE_URL=http://localhost:4000 npx playwright test
 \`\`\`
 
 ## View Report
@@ -220,15 +253,28 @@ npm test
 npm run show-report
 \`\`\`
 
+## Base URL Configuration
+
+Set runtime base URL using environment variable:
+
+\`\`\`bash
+BASE_URL=http://localhost:4000
+\`\`\`
+
 ## Project Structure
 
 \`\`\`
 .
-├── pages/          # Page Object Models
-├── tests/          # Playwright spec files
-├── locators/       # Resolved locator snapshots
+├── src/
+│   ├── pages/      # Page Object Models
+│   ├── tests/      # Playwright spec files
+│   ├── locators/   # Resolved locator snapshots
+│   ├── test-data/  # Externalized test data
+│   ├── utils/      # Shared utilities
+│   └── fixtures/   # Test fixtures
 ├── reports/        # Execution reports
 ├── playwright.config.ts
+├── tsconfig.json
 └── package.json
 \`\`\`
 `;
