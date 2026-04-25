@@ -61,7 +61,7 @@ Playwright browsers are **pre-installed** in the official Playwright base image 
 - `.env` is `.gitignore`d and `.dockerignore`d — it is never committed or baked into the image.
 - The API never logs the API key.
 
-### MacBook Air 8 GB — recommended demo settings
+### Recommended demo settings for low-memory environments (8 GB RAM or less)
 
 Chromium uses roughly 200–500 MB per headless browser process. Keep concurrency low:
 

@@ -17,7 +17,7 @@ services:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       # Skip per-job npm install; use the platform runtime
       INSTALL_GENERATED_PROJECT_DEPS: 'false'
-      # Concurrency — conservative defaults for MacBook Air 8 GB demo
+      # Concurrency — conservative defaults for low-memory demo environments
       MAX_GLOBAL_AGENTS: '1'
       MAX_PARALLEL_AGENTS_PER_JOB: '1'
       MAX_TEST_CASES_PER_JOB: '5'
