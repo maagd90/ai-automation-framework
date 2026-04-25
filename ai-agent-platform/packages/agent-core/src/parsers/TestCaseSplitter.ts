@@ -19,12 +19,33 @@ export class TestCaseSplitter {
     return batch.testCases.map((tc, idx) => {
       const childId = `child-${String(idx + 1).padStart(4, '0')}`;
       const filePath = path.join(outputDir, `${childId}.json`);
-      const payload: TestCaseBatch = {
-        batchName: `${batch.batchName}::${tc.name}`,
-        testCases: [tc],
-      };
+      const payload = this.toRootCliTestCase(tc);
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
       return { childId, filePath, testCase: tc };
     });
+  }
+
+  private toRootCliTestCase(testCase: TestCase): {
+    name: string;
+    preconditions: string[];
+    steps: Array<{
+      order: number;
+      action: string;
+      target: string;
+      value?: string;
+    }>;
+    expectedResults: string[];
+  } {
+    return {
+      name: testCase.name,
+      preconditions: [],
+      steps: testCase.steps.map((step) => ({
+        order: step.order,
+        action: step.action,
+        target: step.target ?? '',
+        ...(step.value !== undefined ? { value: step.value } : {}),
+      })),
+      expectedResults: [],
+    };
   }
 }
