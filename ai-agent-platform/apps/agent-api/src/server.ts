@@ -42,6 +42,7 @@ function detectContainerMemoryMB(): number | null {
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 const trustProxy = process.env.TRUST_PROXY ?? '1';
+const demoMode = process.env.DEMO_MODE === 'true';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS
   ?? 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173')
   .split(',')
@@ -56,6 +57,16 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
         return;
+      }
+      if (demoMode) {
+        try {
+          const { hostname } = new URL(origin);
+          if (hostname.endsWith('.trycloudflare.com')) {
+            console.log('[CORS] Allowed demo tunnel origin:', origin);
+            callback(null, true);
+            return;
+          }
+        } catch { /* malformed origin — fall through to reject */ }
       }
       callback(new Error('CORS origin not allowed'));
     },

@@ -84,6 +84,7 @@ See `.env.example` at the repo root for the full reference. Key variables for lo
 |---|---|---|
 | `PORT` | `3001` | API listen port |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS allowed origins |
+| `DEMO_MODE` | `false` | When `true`, also allows `*.trycloudflare.com` origins (Cloudflare Quick Tunnel) |
 | `MAX_GLOBAL_AGENTS` | `1` | Global concurrency cap for Playwright processes |
 | `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job concurrency cap |
 | `MAX_TEST_CASES_PER_JOB` | `5` | Maximum test cases per upload |
@@ -133,6 +134,20 @@ If the API starts without Playwright ready, it logs:
 ```
 
 All browser launch attempts will fail with error category `PLAYWRIGHT_RUNTIME_MISSING_DEPS` in job logs until the dependencies are installed.
+
+---
+
+## Cloudflare Quick Tunnel (Demo)
+
+When running the demo behind a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (`cloudflared tunnel --url http://localhost:3000`), the generated `*.trycloudflare.com` URL changes every run.
+
+Set `DEMO_MODE=true` so the API accepts any origin ending with `.trycloudflare.com` without needing to update `ALLOWED_ORIGINS` each time:
+
+```env
+DEMO_MODE=true
+```
+
+> **Security note:** This relaxed rule applies only while `DEMO_MODE=true`. In production (`DEMO_MODE=false` or unset), only the explicit `ALLOWED_ORIGINS` list is accepted.
 
 ---
 
