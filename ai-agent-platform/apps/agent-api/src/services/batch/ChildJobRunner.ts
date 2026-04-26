@@ -32,7 +32,30 @@ export interface ChildRunResult {
   aiUsage?: AiUsageSummary;
 }
 
+/**
+ * Runs a single child agent process for one test case split.
+ *
+ * Spawns a Node.js child process executing the agent core CLI `generate` command.
+ * Streams stdout and stderr back to the parent job log.
+ * Detects Playwright missing-dependency errors in stderr and appends a diagnostic message.
+ * Enforces a 20-minute timeout (CHILD_JOB_TIMEOUT_MS) per child run.
+ * Reads the AI usage JSON file written by the child process after completion.
+ */
 export class ChildJobRunner {
+  /**
+   * Spawns a child agent process to generate a Playwright project for one test case.
+   *
+   * The child process runs `node <AGENT_CORE_PATH> generate --file ... --url ... --output ...`.
+   * AI configuration is forwarded as environment variables so the agent core can apply them.
+   * A kill timer enforces the maximum run duration; timed-out processes resolve with exit code 124.
+   *
+   * @param job - The parent job entity (provides URL, headless setting, and log destination).
+   * @param childId - Unique identifier for this child run (used for log prefixing and directory naming).
+   * @param childFilePath - Absolute path to the split test case JSON file for this child.
+   * @param aiConfig - Optional AI configuration forwarded to the child process as env vars.
+   * @param attempt - Current attempt number (1-based), used for log context during retries.
+   * @returns Result containing exit code, duration, attempt count, and optional AI usage data.
+   */
   async run(
     job: JobEntity,
     childId: string,
@@ -138,6 +161,15 @@ export class ChildJobRunner {
     });
   }
 
+  /**
+   * Reads the AI usage JSON file written by the child agent process after generation.
+   *
+   * The file is written to `<childDir>/ai-usage.json` by the agent core's GenerateCommand
+   * when AI features are enabled. Returns undefined if the file does not exist or cannot be parsed.
+   *
+   * @param aiUsagePath - Absolute path to the AI usage output file.
+   * @returns Parsed AI usage summary, or undefined if unavailable.
+   */
   private readAiUsage(aiUsagePath: string): AiUsageSummary | undefined {
     if (!fs.existsSync(aiUsagePath)) {
       return undefined;

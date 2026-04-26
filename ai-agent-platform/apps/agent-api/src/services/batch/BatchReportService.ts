@@ -1,7 +1,31 @@
 import type { AiUsageSummary, BatchReport, ExecutionMode, FailureAnalysis } from '@ai-agent/shared-types';
 import type { ChildRunResult } from './ChildJobRunner';
 
+/**
+ * Builds the final batch execution report for a completed job.
+ *
+ * Determines overall job status (passed / partial / failed) based on
+ * generation success across all child runs and, in generate-and-execute mode,
+ * the Playwright test run exit code.
+ */
 export class BatchReportService {
+  /**
+   * Constructs a BatchReport from the child run results and optional execution metadata.
+   *
+   * Status logic:
+   * - 'passed'  — all test cases generated successfully (and tests passed, if executed).
+   * - 'partial' — some test cases generated successfully, others failed.
+   * - 'failed'  — all test cases failed generation, or test execution failed.
+   *
+   * @param params.startedAt - Unix timestamp (ms) when the job started; used to compute durationMs.
+   * @param params.childResults - Results from each child agent run.
+   * @param params.parallelAgents - Number of parallel agents that were used.
+   * @param params.executionMode - 'generate-only' or 'generate-and-execute'.
+   * @param params.testRunExitCode - Exit code from the Playwright test run (0 = passed).
+   * @param params.aiUsage - Aggregated AI usage statistics for the job.
+   * @param params.failureAnalysis - AI-generated failure analysis, if available.
+   * @returns A complete BatchReport object ready for serialization and storage.
+   */
   build(params: {
     startedAt: number;
     childResults: ChildRunResult[];

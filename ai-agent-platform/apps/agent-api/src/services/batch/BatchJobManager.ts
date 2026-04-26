@@ -12,12 +12,34 @@ import { AgentPoolManager } from './AgentPoolManager';
 import { ProjectMerger } from './ProjectMerger';
 import { BatchReportService } from './BatchReportService';
 
+/**
+ * Orchestrates the full batch test generation pipeline for a single job.
+ *
+ * Responsibilities:
+ * - Parses the uploaded test case file into individual test cases.
+ * - Validates the batch and enforces per-job test case limits.
+ * - Splits the batch into one file per test case for parallel processing.
+ * - Dispatches child agent processes via AgentPoolManager.
+ * - Merges all child outputs into a single final project using ProjectMerger.
+ * - Optionally runs the generated Playwright tests (generate-and-execute mode).
+ * - Builds and persists the execution report.
+ * - Handles AI failure analysis when an AI provider is configured.
+ */
 export class BatchJobManager {
   private readonly pool = new AgentPoolManager();
   private readonly merger = new ProjectMerger();
   private readonly reporter = new BatchReportService();
   private readonly aiPromptService = new AiPromptService();
 
+  /**
+   * Executes the full generation pipeline for the given job.
+   *
+   * Steps: parse → validate → split → run agents → merge → (optional) execute tests → report.
+   * Updates job status and logs throughout. Writes a report.json to the job directory on completion.
+   *
+   * @param job - The job entity containing input file path, target URL, and execution settings.
+   * @param aiConfig - Optional AI provider configuration for parsing assistance and failure analysis.
+   */
   async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
     const startedAt = Date.now();
@@ -166,14 +188,19 @@ export class BatchJobManager {
     }
   }
 
-  /** Runs Playwright tests, returning the final exit code.
+  /**
+   * Runs the generated Playwright tests inside the final merged project directory.
    *
-   * When INSTALL_GENERATED_PROJECT_DEPS=false, tests are executed from the repo
-   * root (where @playwright/test is already installed) using the generated
-   * project's playwright.config.ts so Playwright resolves testDir correctly.
+   * When INSTALL_GENERATED_PROJECT_DEPS=false (default), tests are executed using
+   * the platform's pre-installed Playwright binary from the repo root, with the
+   * generated project's playwright.config.ts supplied via --config.
    *
-   * When INSTALL_GENERATED_PROJECT_DEPS=true, deps are installed inside the
-   * generated project first and `npm test` is run from there.
+   * When INSTALL_GENERATED_PROJECT_DEPS=true, dependencies are installed inside
+   * the generated project first, then `npm test` is run from that directory.
+   *
+   * @param projectDir - Absolute path to the merged final project directory.
+   * @param log - Log function that writes timestamped entries to the job log.
+   * @returns Exit code, stdout, and stderr from the Playwright test run.
    */
   private runPlaywright(
     projectDir: string,
@@ -280,6 +307,19 @@ export class BatchJobManager {
     });
   }
 
+  /**
+   * Uses the configured AI provider to analyze Playwright test failure output.
+   *
+   * Called only when executionMode is 'generate-and-execute' and tests fail.
+   * Sanitizes log output before sending it to the AI provider to avoid leaking secrets.
+   * Returns undefined if AI is not configured for failure analysis or if the call fails.
+   *
+   * @param stderr - Standard error output from the Playwright test run.
+   * @param stdout - Standard output from the Playwright test run.
+   * @param aiConfig - AI provider configuration.
+   * @param log - Log function for writing analysis status messages.
+   * @returns Structured failure analysis, or undefined if unavailable.
+   */
   private async analyzeFailure(
     stderr: string,
     stdout: string,
@@ -317,6 +357,17 @@ export class BatchJobManager {
     }
   }
 
+  /**
+   * Aggregates AI usage statistics from all child job results into a single summary.
+   *
+   * Combines call counts (parsing, naming, failure analysis) across all children.
+   * Adds one failure analysis call if the batch-level failure analysis was also invoked.
+   *
+   * @param aiConfig - The AI configuration used for this job (for provider/model defaults).
+   * @param childResults - Results from each child agent, each optionally containing AI usage.
+   * @param usedFailureAnalysis - Whether the batch-level failure analysis call was made.
+   * @returns Aggregated AI usage summary for the full job.
+   */
   private buildAiUsageSummary(
     aiConfig: AiConfig | undefined,
     childResults: Array<{ aiUsage?: AiUsageSummary }>,

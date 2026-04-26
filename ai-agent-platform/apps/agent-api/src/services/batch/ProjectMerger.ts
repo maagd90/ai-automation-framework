@@ -5,7 +5,28 @@ import type { JobEntity } from '../../domain/Job';
 
 type RenameMap = Map<string, string>;
 
+/**
+ * Merges the generated outputs of all child agent runs into a single deployable Playwright project.
+ *
+ * Each child agent produces its own pages, tests, locators, and test-data directories.
+ * ProjectMerger combines these into a unified `final-project/` directory with a standardized
+ * structure, resolving file name conflicts by appending the childId as a suffix.
+ * It also scaffolds the project-level files: package.json, playwright.config.ts, tsconfig.json,
+ * a wait utility, and a README.
+ */
 export class ProjectMerger {
+  /**
+   * Merges all child agent outputs into a single final project directory.
+   *
+   * Creates the standard directory structure (src/pages, src/tests, src/locators,
+   * src/test-data, src/utils, src/fixtures, reports), copies files from each child,
+   * resolves naming conflicts, updates import paths in spec files, and scaffolds
+   * project-level configuration files.
+   *
+   * @param job - The job entity (provides jobId and per-job execution settings).
+   * @param childIds - Ordered list of child run identifiers whose outputs should be merged.
+   * @returns Absolute path to the merged final project directory.
+   */
   merge(job: JobEntity, childIds: string[]): string {
     const finalDir = path.join(JOBS_BASE_DIR, job.jobId, 'final-project');
     fs.rmSync(finalDir, { recursive: true, force: true });
@@ -37,6 +58,17 @@ export class ProjectMerger {
     return finalDir;
   }
 
+  /**
+   * Validates the merged final project to ensure it is complete and consistent.
+   *
+   * Checks that package.json, playwright.config.ts, and the src/tests directory exist.
+   * Verifies that at least one `.spec.ts` file was generated.
+   * Validates that every page import in every spec file resolves to an existing page file.
+   * Throws an error describing the first missing or inconsistent artifact found.
+   *
+   * @param finalDir - Absolute path to the merged final project directory.
+   * @throws Error if any required file is missing or an import cannot be resolved.
+   */
   validate(finalDir: string): void {
     const requiredPaths = [
       path.join(finalDir, 'package.json'),

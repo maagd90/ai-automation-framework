@@ -29,6 +29,23 @@ const VALID_ACTIONS = new Set<ActionType>([
   'navigate',
 ]);
 
+/**
+ * Provides AI-assisted enhancements to the test case parsing and generation pipeline.
+ *
+ * Wraps an AI provider (Gemini, OpenAI, etc.) and exposes three optional capabilities:
+ * - **Parsing**: Normalizes ambiguous test case text to structured JSON, and classifies
+ *   low-confidence step intents (action, target, value).
+ * - **Naming**: Suggests idiomatic camelCase method names for Page Object Model methods.
+ * - **Failure analysis**: Analyzes Playwright test stderr/stdout to produce a structured
+ *   diagnosis with a suggested fix.
+ *
+ * All AI calls fail gracefully — if the provider is unavailable or returns an unexpected
+ * response, the service logs a warning and returns undefined so the deterministic fallback
+ * is used instead.
+ *
+ * Usage: instantiate via `AiSupportService.fromEnv()` inside a child agent process,
+ * or construct directly with a config object in tests.
+ */
 export class AiSupportService {
   private readonly logger = new Logger('AiSupportService');
   private readonly promptService = new AiPromptService();
@@ -44,6 +61,13 @@ export class AiSupportService {
     this.usage = new AiUsageTracker(config.provider, config.model);
   }
 
+  /**
+   * Creates an AiSupportService instance from environment variables.
+   *
+   * Reads AI_PROVIDER, AI_API_KEY, AI_MODEL, AI_BASE_URL, AI_USE_FOR_PARSING,
+   * AI_USE_FOR_NAMING, and AI_USE_FOR_FAILURE_ANALYSIS. These are set by ChildJobRunner
+   * when it spawns a child agent process. Returns a no-op service if AI_PROVIDER is not set.
+   */
   static fromEnv(): AiSupportService {
     return new AiSupportService({
       provider: (process.env.AI_PROVIDER as RootAiConfig['provider']) ?? 'none',
@@ -76,6 +100,17 @@ export class AiSupportService {
     return this.usage.snapshot();
   }
 
+  /**
+   * Attempts to normalize raw test case text into a structured JSON string.
+   *
+   * Called by TestCaseParserFactory when the deterministic parser produces a
+   * low-confidence result or fails entirely. The resulting JSON is validated by
+   * JsonTestCaseParser before being returned. Returns undefined on failure so the
+   * deterministic parser output is used as a fallback.
+   *
+   * @param rawContent - Raw test case text (TXT or feature file content).
+   * @returns Normalized JSON string, or undefined if AI is disabled or the call fails.
+   */
   async normalizeTestCase(rawContent: string): Promise<string | undefined> {
     if (!this.canUseParsing()) return undefined;
 
@@ -97,6 +132,16 @@ export class AiSupportService {
     }
   }
 
+  /**
+   * Classifies the intent of a single ambiguous test step into a structured action descriptor.
+   *
+   * Used by TestCaseParserFactory when the deterministic parser marks a step as low-confidence.
+   * The response is validated to ensure the action is a known ActionType and a target is present.
+   * Returns undefined if AI is disabled, the response is invalid, or the call fails.
+   *
+   * @param stepText - Raw step text string (e.g. "Click the submit button").
+   * @returns Classified step with action, target, and optional value; or undefined on failure.
+   */
   async classifyStepIntent(stepText: string): Promise<ClassifiedStepIntent | undefined> {
     if (!this.canUseParsing()) return undefined;
 
@@ -128,6 +173,18 @@ export class AiSupportService {
     }
   }
 
+  /**
+   * Suggests an idiomatic camelCase method name for a Page Object Model method.
+   *
+   * Used by the code generator to produce readable method names when AI naming is enabled.
+   * The response is validated against a camelCase pattern before being accepted.
+   * Returns undefined if AI is disabled, the name is invalid, or the call fails —
+   * in which case the deterministic naming strategy is used.
+   *
+   * @param action - The action type (e.g. 'click', 'enter').
+   * @param target - The element target description (e.g. 'Login button').
+   * @returns Suggested camelCase method name, or undefined if unavailable.
+   */
   async suggestMethodName(action: string, target: string): Promise<string | undefined> {
     if (!this.canUseNaming()) return undefined;
 
@@ -152,6 +209,18 @@ export class AiSupportService {
     }
   }
 
+  /**
+   * Analyzes Playwright test failure output and returns a structured diagnosis.
+   *
+   * Sanitizes stderr and stdout to remove secrets before sending to the AI provider.
+   * Returns a structured FailureAnalysis with a category, summary, and suggested fix.
+   * If the provider is unavailable, returns a fallback analysis with category 'ai-unavailable'.
+   * Returns undefined if failure analysis is not enabled in the current configuration.
+   *
+   * @param stderr - Standard error output from the failed Playwright test run.
+   * @param stdout - Standard output from the failed Playwright test run.
+   * @returns Structured failure analysis, or undefined if the feature is disabled.
+   */
   async analyzeFailure(stderr: string, stdout: string): Promise<FailureAnalysis | undefined> {
     if (!this.canUseFailureAnalysis()) return undefined;
 

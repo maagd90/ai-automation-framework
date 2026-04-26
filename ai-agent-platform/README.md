@@ -1,24 +1,35 @@
-# AI Agent Platform
+# AI Agent Platform — Developer Setup Guide
 
-A production-ready web UI + REST API wrapper for the AI QA Agent system.
+Web platform for the AI QA Automation Agent. Provides a React UI and a REST API that orchestrate the batch test generation pipeline.
+
+For full product documentation, see the [root README](../README.md).
+
+---
 
 ## Architecture
 
 ```
 ai-agent-platform/
 ├── apps/
-│   ├── agent-ui/   React + TypeScript + Vite + Tailwind frontend
-│   └── agent-api/  Node.js + Express + TypeScript REST API
+│   ├── agent-ui/       React + TypeScript + Vite + Tailwind (frontend)
+│   └── agent-api/      Node.js + Express + TypeScript (REST API)
 └── packages/
-    └── shared-types/  Shared TypeScript interfaces
+    └── shared-types/   Shared TypeScript interfaces used by UI and API
 ```
+
+The API orchestrates the full generation pipeline: it receives uploaded test cases, splits them into per-test-case units, dispatches child agent processes via `AgentPoolManager`, merges the outputs with `ProjectMerger`, and returns a ZIP artifact to the UI.
+
+---
 
 ## Prerequisites
 
 - Node.js 18+
-- The AI agent core must be built: run `npm run build` from the **repo root** first
+- npm 9+
+- Build the agent core first: run `npm run build` from the **repo root**
 
-## Quick Start
+---
+
+## Development Setup
 
 ### 1. Install dependencies
 
@@ -49,102 +60,83 @@ npm run dev:ui
 
 Open http://localhost:5173 in your browser.
 
-## Runtime Hardening (Phase 1 Production)
+---
 
-The API supports configurable multi-user throttling and shared Playwright runtime behavior.
-
-1. Copy `.env.example` to `.env` (or set env vars via your deployment platform).
-2. Configure:
-    - `MAX_GLOBAL_AGENTS`: hard cap across all running jobs.
-    - `MAX_PARALLEL_AGENTS_PER_JOB`: per-job cap to prevent single-job starvation.
-    - `INSTALL_GENERATED_PROJECT_DEPS`: set `false` in production to avoid per-job installs.
-    - `PLAYWRIGHT_BROWSERS_PATH`: shared browsers directory used by all child jobs.
-
-### Shared Playwright Runtime
-
-Install browsers once during environment setup (not per job):
-
-```bash
-PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/home/codespace/.cache/ms-playwright} npx playwright install --with-deps chromium
-```
-
-For Codespaces/server deployments, run the install command during image/setup provisioning.
-Jobs then reuse the shared browser cache via `PLAYWRIGHT_BROWSERS_PATH`.
-
-### Multi-User Acceptance Test (Global Concurrency Cap)
-
-With API/UI/demo server running, execute from repo root:
-
-```bash
-MAX_GLOBAL_AGENTS=3 STRESS_JOBS=3 STRESS_PARALLEL_AGENTS=3 npm run stress:multiuser
-```
-
-Expected outcome:
-
-- The test submits 3 jobs concurrently.
-- It polls job completion and reads job logs.
-- It asserts observed `Global active agents` never exceeds `MAX_GLOBAL_AGENTS`.
-
-## API Reference
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/jobs | Create a new job (multipart/form-data) |
-| GET | /api/jobs/:jobId/status | Get job status |
-| GET | /api/jobs/:jobId/logs | Get job logs |
-| GET | /api/jobs/:jobId/report | Get execution report |
-| GET | /api/jobs/:jobId/download | Download artifacts as ZIP |
+| `POST` | `/api/jobs` | Create a new job (`multipart/form-data`) |
+| `GET` | `/api/jobs/:jobId/status` | Get job status |
+| `GET` | `/api/jobs/:jobId/logs` | Stream job logs |
+| `GET` | `/api/jobs/:jobId/report` | Get execution report |
+| `GET` | `/api/jobs/:jobId/download` | Download generated artifacts as ZIP |
+| `GET` | `/api/health` | API health check |
+| `GET` | `/api/config` | Active feature flags |
 
-## UI Flow
+---
 
-1. Upload test case file (.txt, .json, .feature)
-2. Enter target application URL
-3. Select framework (Playwright TypeScript)
-4. Choose headless/headed mode
-5. Click **Generate Framework**
-6. Monitor job progress with live log streaming
-7. View report and download generated artifacts
+## Environment Variables
+
+See `.env.example` at the repo root for the full reference. Key variables for local development:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3001` | API listen port |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS allowed origins |
+| `MAX_GLOBAL_AGENTS` | `1` | Global concurrency cap for Playwright processes |
+| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job concurrency cap |
+| `MAX_TEST_CASES_PER_JOB` | `5` | Maximum test cases per upload |
+| `JOBS_DIR` | `/tmp/jobs` | Job artifact storage directory |
+| `JOB_RETENTION_HOURS` | `24` | Hours before undownloaded artifacts are auto-deleted |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Shared Playwright browser cache path |
+| `GEMINI_API_KEY` | _(empty)_ | Optional AI provider key |
+
+---
+
+## Shared Playwright Runtime
+
+In production and Docker deployments, browsers are installed once and reused by all jobs:
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH=/home/codespace/.cache/ms-playwright \
+  npx playwright install --with-deps chromium
+```
+
+Set `INSTALL_GENERATED_PROJECT_DEPS=false` to skip per-job `npm install` and use the platform Playwright runtime instead.
+
+---
 
 ## Security
 
-- File types restricted to .txt, .json, .feature
-- Max upload size: 5 MB
-- File paths sanitized
-- Agent internals not exposed to UI
-- Input validation on all fields
+- Uploaded files are validated: only `.txt`, `.json`, and `.feature` are accepted (max 5 MB).
+- File paths are sanitized before use.
+- API keys are never logged.
+- Agent internals are not exposed through API responses.
+- Input fields are validated on all endpoints.
+
+---
 
 ## Troubleshooting
 
-### Playwright browser launch fails (`libatk-1.0.so.0` or similar missing library)
+### Playwright browser launch fails (`libatk-1.0.so.0` or similar)
 
-This happens in Codespaces and CI environments when Playwright's Linux system dependencies are not installed.
+Install Playwright system dependencies once during environment setup:
 
-**Full install (browsers + system deps — recommended):**
 ```bash
 npx playwright install --with-deps chromium
 ```
 
-**System deps only (if browser binary is already present):**
-```bash
-sudo npx playwright install-deps chromium
-```
-
-**Browser binary only (if system deps are already installed):**
-```bash
-npx playwright install chromium
-```
-
-> Browser dependencies must be installed **once** during environment setup. They are reused by all jobs via the shared `PLAYWRIGHT_BROWSERS_PATH`.
-
-If the API starts and Playwright is not ready, it logs:
+If the API starts without Playwright ready, it logs:
 ```
 [WARN] Playwright readiness check failed. Run: npx playwright install --with-deps chromium
 ```
-and all browser launch attempts will fail with error category `PLAYWRIGHT_RUNTIME_MISSING_DEPS` in job logs.
+
+All browser launch attempts will fail with error category `PLAYWRIGHT_RUNTIME_MISSING_DEPS` in job logs until the dependencies are installed.
 
 ---
 
-## Phase 1 limitations
+## Known Limitations (Phase 1)
 
-- Jobs are stored in memory only in Phase 1.
-- Job history, logs, and status are lost when the API process restarts.
+- Job history, logs, and status are stored in memory only and are lost when the API process restarts.
+- No persistent database is used in Phase 1.

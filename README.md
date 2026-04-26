@@ -1,202 +1,214 @@
 # AI QA Automation Agent — Phase 1
 
-An enterprise-grade AI-powered QA automation agent that transforms natural language test cases into executable Playwright tests with smart DOM inspection and locator generation.
+> From test cases to working Playwright automation — on any operating system.
 
-## Overview
+## Objective
 
-This agent automates the process of:
-1. Parsing test cases from `.txt`, `.json`, or `.feature` (Gherkin) formats
-2. Inspecting the live DOM of a target URL to identify interactive elements
-3. Generating resilient locators ranked by stability and uniqueness
-4. Producing Page Object Model classes and Playwright spec files ready to run
+The AI QA Automation Agent takes your test case files and automatically produces a complete, runnable Playwright TypeScript test framework for any web application.
 
-## Setup
+**What the system does, end to end:**
 
-```bash
-npm install
-npm run build
+1. **User uploads** a test case file (`.txt`, `.json`, or `.feature`)
+2. **System parses** the file to extract test case names, steps, and expected results
+3. **System opens** the target website URL using a headless Playwright / Chromium browser
+4. **System inspects** the live DOM to discover interactive elements
+5. **System generates** resilient locators ranked by stability and uniqueness
+6. **System generates** a Page Object Model (POM) class for each test case
+7. **System generates** Playwright TypeScript spec files ready to execute
+8. **Optionally executes** the generated tests against the target URL
+9. **Outputs** a downloadable ZIP containing the full generated project plus an execution report
+
+---
+
+## Scope (Phase 1)
+
+- **Framework:** Playwright TypeScript only
+- **Input formats:** Plain text (`.txt`), JSON (`.json`), Gherkin (`.feature`)
+- **Execution:** Batch test generation; optional generate-and-execute mode
+- **Concurrency:** Parallel agent control via environment variables
+- **AI support:** Optional — Gemini or other configured provider for parsing assistance and failure analysis
+- **Demo mode:** Safe concurrency limits to run on any machine with limited resources
+
+---
+
+## Architecture
+
+```
+User
+ ↓
+React UI  (apps/agent-ui — Vite + Tailwind)
+ ↓
+REST API  (apps/agent-api — Express + TypeScript)
+ ↓
+BatchJobManager  (orchestrates the full pipeline)
+ ↓
+Parser + Splitter  (reads input file, splits into per-test-case units)
+ ↓
+AgentPoolManager  (manages concurrency; enforces global + per-job caps)
+ ↓
+Child Agents  (one Node.js process per test case)
+ ↓
+Playwright Browser  (Chromium, headless)
+ ↓
+DOM Inspection  (discovers interactive elements on the target URL)
+ ↓
+Locator Generation  (ranks locators by stability)
+ ↓
+Code Generation  (Page Object Model + Playwright spec)
+ ↓
+ProjectMerger  (combines all child outputs into one project)
+ ↓
+ZIP + Report  (downloadable artifact + execution summary)
 ```
 
-## Docker Deployment (Phase 1)
+---
 
-The project runs as two separate Docker containers — a lightweight UI container and a Playwright-enabled API container.
+## Project Structure
 
-### Quick start
+```
+ai-automation-framework/
+├── src/                         # Agent core (TypeScript/NodeNext)
+│   ├── cli/                     # CLI entry point (generate, scan, run commands)
+│   ├── core/
+│   │   ├── ai/                  # AI provider integration (Gemini, etc.)
+│   │   ├── browser/             # Playwright browser launcher
+│   │   ├── generator/           # POM + spec code generators
+│   │   ├── locator/             # DOM inspection and locator ranking
+│   │   ├── parser/              # Test case parsers (TXT, JSON, Gherkin)
+│   │   └── reporting/           # Execution report builder
+│   └── utils/                   # Logger and shared utilities
+├── ai-agent-platform/           # Web platform (monorepo)
+│   ├── apps/
+│   │   ├── agent-api/           # Express REST API + batch job pipeline
+│   │   └── agent-ui/            # React + Vite + Tailwind frontend
+│   └── packages/
+│       └── shared-types/        # Shared TypeScript interfaces
+├── examples/                    # Sample test case files
+├── tests/                       # Unit tests (Vitest)
+├── Dockerfile                   # Multi-stage Docker build
+├── docker-compose.yml           # Local Docker environment
+└── .env.example                 # Environment variable reference
+```
+
+---
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+
+### Install and build
 
 ```bash
-# 1. Copy the example env file (no secrets are committed)
+# 1. Install root dependencies and build the agent core
+npm install
+npm run build
+
+# 2. Install platform dependencies
+cd ai-agent-platform
+npm install
+npm run build:types
+```
+
+### Start the API and UI for development
+
+```bash
+# Terminal 1 — API server
+cd ai-agent-platform
+npm run dev:api
+# Runs on http://localhost:3001
+
+# Terminal 2 — UI dev server
+cd ai-agent-platform
+npm run dev:ui
+# Runs on http://localhost:5173
+```
+
+Open http://localhost:5173 in your browser.
+
+---
+
+## Docker Setup
+
+The project ships with a fully configured Docker environment. No local Node.js or Playwright installation is required.
+
+```bash
+# 1. Copy the example env file
 cp .env.example .env
 
-# 2. If you want Gemini AI support, add your key to .env:
-#    GEMINI_API_KEY=your-key-here
-#    (Never commit this value)
+# 2. Optional: add your Gemini API key for AI features
+#    Edit .env and set: GEMINI_API_KEY=your-key-here
+#    Never commit this value.
 
 # 3. Build and start both containers
 docker-compose up --build
 ```
 
-| Endpoint | URL |
+| Service | URL |
 |---|---|
 | UI | http://localhost:5173 |
-| API health | http://localhost:3001/api/health |
-
-### What each container does
+| API health check | http://localhost:3001/api/health |
 
 | Container | Base image | Responsibilities |
 |---|---|---|
-| `api` | `mcr.microsoft.com/playwright:v1.41.0-jammy` | Runs Express API + Playwright/Chromium headless browser + CLI |
-| `ui` | `node:18-alpine` | Builds and serves the React UI via `vite preview` |
+| `api` | `mcr.microsoft.com/playwright:v1.41.0-jammy` | Express API + Playwright/Chromium + CLI |
+| `ui` | `node:18-alpine` | React UI served via `vite preview` |
 
-Playwright browsers are **pre-installed** in the official Playwright base image at `/ms-playwright`. There is no `npx playwright install` at runtime.
+Playwright browsers are **pre-installed** in the official base image at `/ms-playwright`. No `npx playwright install` is needed at runtime.
 
-### Job artifacts and storage
+---
 
-- Job artifacts (generated Playwright framework ZIP) are stored in the `ai-agent-jobs` Docker volume at `/tmp/jobs`.
-- After a successful download, the job folder is **automatically deleted** to free disk space.
-- Old jobs that were never downloaded are cleaned up automatically after `JOB_RETENTION_HOURS` (default: 24 h).
-
-### Secrets
-
-- Copy `.env.example` → `.env` and fill in `GEMINI_API_KEY` only when needed.
-- `.env` is `.gitignore`d and `.dockerignore`d — it is never committed or baked into the image.
-- The API never logs the API key.
-
-### Recommended demo settings for low-memory environments (8 GB RAM or less)
-
-Chromium uses roughly 200–500 MB per headless browser process. Keep concurrency low:
-
-```env
-MAX_GLOBAL_AGENTS=1
-MAX_PARALLEL_AGENTS_PER_JOB=1
-MAX_TEST_CASES_PER_JOB=5
-ENABLE_TRACE_VIDEO=false
-ENABLE_LOCAL_LLM=false
-```
-
-These are already the defaults in `.env.example` and `docker-compose.yml`.
-
-### Key environment variables
+## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_GLOBAL_AGENTS` | `1` | Hard cap on concurrent Playwright/Node processes |
-| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Per-job cap |
-| `MAX_TEST_CASES_PER_JOB` | `5` | Prevents runaway resource use on large uploads |
-| `INSTALL_GENERATED_PROJECT_DEPS` | `false` | Use platform Playwright runtime (no per-job `npm install`) |
-| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Pre-installed browser location |
-| `JOBS_DIR` | `/tmp/jobs` | Job artifact storage; mount a volume here |
-| `JOB_RETENTION_HOURS` | `24` | Auto-delete old jobs after this many hours |
-| `PORT` | `3001` | API listen port |
-| `ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins |
-| `GEMINI_API_KEY` | _(empty)_ | Gemini API key — never committed or logged |
+| `DEMO_MODE` | `true` | Enables safe demo limits |
+| `MAX_GLOBAL_AGENTS` | `1` | Hard cap on concurrent Playwright processes across all jobs |
+| `MAX_PARALLEL_AGENTS_PER_JOB` | `1` | Maximum parallel agents within a single job |
+| `MAX_TEST_CASES_PER_JOB` | `5` | Maximum test cases allowed per upload |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | Path to the pre-installed Chromium browser |
+| `JOBS_DIR` | `/tmp/jobs` | Directory where job artifacts are stored |
+| `JOB_RETENTION_HOURS` | `24` | Hours before undownloaded job artifacts are auto-deleted |
+| `ENABLE_AI_PROVIDERS` | `false` | Enables AI provider selection in the UI and API |
+| `ENABLE_LOCAL_LLM` | `false` | Enables local LLM option (requires `ENABLE_AI_PROVIDERS=true`) |
+| `ENABLE_TRACE_VIDEO` | `false` | Enables trace and video capture on test failure |
+| `GEMINI_API_KEY` | _(empty)_ | Gemini API key — never logged or committed |
 
-The API logs an estimated peak memory on startup:
+---
 
-```
-[Runtime Config]
-  MAX_GLOBAL_AGENTS              = 1
-  MAX_PARALLEL_AGENTS_PER_JOB   = 1
-  INSTALL_GENERATED_PROJECT_DEPS = false
-  PLAYWRIGHT_BROWSERS_PATH       = /ms-playwright
-  Detected memory                = 4096 MB (container limit)
-  Estimated peak memory usage ≈ 756 MB
-    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~500 MB/agent)
-```
+## Demo Mode
 
+Demo mode applies conservative resource limits that make it suitable for running on any machine, including those with 8 GB RAM or less.
 
-## Demo Deployment Defaults
+**Active limits in demo mode:**
 
-The following settings keep hosting cheap and prevent abuse for a public Phase 1 demo. Copy them into your `.env` (or Docker/Compose env) before going live:
+- Single agent at a time (`MAX_GLOBAL_AGENTS=1`)
+- One agent per job (`MAX_PARALLEL_AGENTS_PER_JOB=1`)
+- Maximum 5 test cases per upload (`MAX_TEST_CASES_PER_JOB=5`)
+- Trace and video capture disabled (`ENABLE_TRACE_VIDEO=false`)
+- Local LLM disabled (`ENABLE_LOCAL_LLM=false`)
 
-```env
-# Concurrency
-MAX_GLOBAL_AGENTS=1
-MAX_PARALLEL_AGENTS_PER_JOB=1
+These defaults are set in both `.env.example` and `docker-compose.yml`. No changes are needed to run a demo.
 
-# Cost/abuse guards
-MAX_TEST_CASES_PER_JOB=5
-MAX_DAILY_JOBS_PER_IP=20
-JOB_RETENTION_HOURS=24
+---
 
-# Runtime
-INSTALL_GENERATED_PROJECT_DEPS=false
-PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+## Usage Flow (UI)
 
-# Feature flags — AI on; heavy optional features off for demo
-ENABLE_AI_PROVIDERS=true
-ENABLE_LOCAL_LLM=false
-ENABLE_TRACE_VIDEO=false
-ENABLE_BATCH_LARGE_UPLOAD=false
-ENABLE_ADMIN_PANEL=false
-```
+1. Open the UI at http://localhost:5173
+2. Upload a test case file (`.txt`, `.json`, or `.feature`)
+3. Enter the target application URL
+4. Select framework: **Playwright TypeScript**
+5. Choose headless or headed browser mode
+6. Click **Generate Framework**
+7. Watch live log output as the agent runs
+8. View the execution report when complete
+9. Click **Download ZIP** to get your generated project
 
-### Feature flag reference
+---
 
-| Flag | Default | Effect when `true` |
-|---|---|---|
-| `ENABLE_AI_PROVIDERS` | `false` | Unlocks OpenAI / Gemini / Azure provider selection in UI and API |
-| `ENABLE_LOCAL_LLM` | `false` | Adds local LLM (Ollama/vLLM) option (requires `ENABLE_AI_PROVIDERS`) |
-| `ENABLE_TRACE_VIDEO` | `false` | Allows trace and video capture on failure |
-| `ENABLE_BATCH_LARGE_UPLOAD` | `false` | Allows batches larger than `MAX_TEST_CASES_PER_JOB` |
-| `ENABLE_ADMIN_PANEL` | `false` | Reserved for Phase 2 admin panel |
-
-### Storage and cleanup
-
-- Job artifact folders are **deleted automatically after a successful ZIP download** — disk space is reclaimed immediately.
-- Jobs that were never downloaded are **pruned automatically** every `JOB_RETENTION_HOURS` hours (default: 24).
-- Active/running jobs are never pruned regardless of age.
-- Only paths inside `JOBS_DIR` are ever touched by the cleanup logic.
-- Re-downloading an already-cleaned artifact returns HTTP 410 with a clear message.
-
-### Phase roadmap
-
-- **Phase 1** — env-based feature flags (this release)
-- **Phase 2** — admin panel: per-feature toggle, user/plan limits
-- **Phase 3** — billing / subscription integration
-
-## Available Commands
-
-### `generate` — Full pipeline: parse test case → inspect URL → generate code
-
-```bash
-node dist/cli/index.js generate \
-  --file examples/testcases/login-test.txt \
-  --url http://localhost:3000/login \
-  --output generated
-```
-
-Options:
-- `--file <path>` — test case file (`.txt`, `.json`, `.feature`)
-- `--url <url>` — target application URL
-- `--output <dir>` — output directory (default: `generated`)
-
-### `scan` — Inspect DOM of a URL and save locator JSON
-
-```bash
-node dist/cli/index.js scan \
-  --url http://localhost:3000/login \
-  --output generated
-```
-
-### `run` — Execute a generated Playwright spec
-
-```bash
-node dist/cli/index.js run \
-  --spec generated/tests/login-with-valid-credentials.spec.ts \
-  --output generated
-```
-
-## Demo
-
-Start the built-in demo server:
-
-```bash
-npm run demo
-```
-
-Then run the generate command against `http://localhost:3000/login`.
-
-## Test Case Formats
+## Input Formats
 
 ### Plain Text (`.txt`)
 
@@ -238,19 +250,131 @@ Scenario: Login with valid credentials
   Then Verify Dashboard is visible
 ```
 
+---
+
 ## Generated Output
 
-After running `generate`, the following files are created under `--output`:
+The downloaded ZIP contains a complete Playwright TypeScript project:
 
 ```
-generated/
-  pages/
-    LoginWithValidCredentialsPage.ts   ← Page Object Model
-  tests/
-    login-with-valid-credentials.spec.ts  ← Playwright spec
-  locators/
-    login-with-valid-credentials.locators.json  ← Locator artifact
+generated-project/
+├── src/
+│   ├── pages/        # Page Object Model classes (one per test case)
+│   ├── tests/        # Playwright spec files (one per test case)
+│   ├── locators/     # Locator snapshot JSON files
+│   ├── test-data/    # Externalized test input data
+│   └── utils/        # Shared utilities (e.g. wait helpers)
+├── reports/          # Execution report (batch-execution-report.json)
+├── playwright.config.ts
+├── tsconfig.json
+└── package.json
 ```
+
+---
+
+## Download and Cleanup
+
+- After a successful ZIP download, the job folder is **automatically deleted** to free disk space.
+- Jobs that were never downloaded are **pruned automatically** after `JOB_RETENTION_HOURS` hours (default: 24).
+- Active and running jobs are never deleted.
+- Attempting to re-download an already-deleted job returns HTTP 410.
+
+---
+
+## Security
+
+- Uploaded files are validated — only `.txt`, `.json`, and `.feature` are accepted (max 5 MB).
+- File paths are sanitized before use.
+- `GEMINI_API_KEY` is never logged by the API and is never included in the generated ZIP.
+- Demo mode enforces per-IP rate limits to prevent abuse.
+- Agent internals are not exposed through the UI or API responses.
+
+---
+
+## Memory Guidance
+
+Chromium uses approximately 200–500 MB of RAM per headless browser process.
+
+- Keep `MAX_GLOBAL_AGENTS=1` on machines with limited memory.
+- The API logs an estimated peak memory usage on startup:
+
+```
+[Runtime Config]
+  MAX_GLOBAL_AGENTS              = 1
+  MAX_PARALLEL_AGENTS_PER_JOB   = 1
+  PLAYWRIGHT_BROWSERS_PATH       = /ms-playwright
+  Detected memory                = 4096 MB (container limit)
+  Estimated peak memory usage ≈ 756 MB
+    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~500 MB/agent)
+```
+
+---
+
+## Troubleshooting
+
+### Playwright browser launch fails (`libatk-1.0.so.0` or similar missing library)
+
+Playwright requires Linux system dependencies. Install them once:
+
+```bash
+# Recommended — installs both browser binary and system dependencies
+npx playwright install --with-deps chromium
+
+# System dependencies only (if browser binary already exists)
+sudo npx playwright install-deps chromium
+```
+
+When using Docker (`docker-compose up --build`), these dependencies are included in the base image and no manual installation is needed.
+
+### API not reachable from UI
+
+- Confirm both containers are running: `docker ps`
+- Check that `ALLOWED_ORIGINS` in `.env` includes the UI URL (`http://localhost:5173`)
+- Verify the API health endpoint: http://localhost:3001/api/health
+
+### Docker build fails or containers exit immediately
+
+- Ensure Docker has at least 4 GB of memory allocated.
+- Run `docker-compose logs api` and `docker-compose logs ui` to view container output.
+- Delete old volumes and rebuild: `docker-compose down -v && docker-compose up --build`
+
+---
+
+## CLI Commands
+
+The agent core can also be used directly from the command line after building.
+
+### `generate` — Parse test case → inspect DOM → generate code
+
+```bash
+node dist/cli/index.js generate \
+  --file examples/testcases/login-test.txt \
+  --url http://localhost:3000/login \
+  --output generated
+```
+
+Options:
+- `--file <path>` — test case file (`.txt`, `.json`, `.feature`)
+- `--url <url>` — target application URL
+- `--output <dir>` — output directory (default: `generated`)
+
+### `scan` — Inspect the DOM of a URL and save locator JSON
+
+```bash
+node dist/cli/index.js scan \
+  --url http://localhost:3000/login \
+  --output generated
+```
+
+### `run` — Execute a generated Playwright spec
+
+```bash
+node dist/cli/index.js run \
+  --spec generated/tests/login-with-valid-credentials.spec.ts \
+  --output generated
+```
+
+---
 
 ## Running Unit Tests
 
@@ -258,22 +382,12 @@ generated/
 npm test
 ```
 
-## Running Playwright Tests (on generated specs)
+---
 
-```bash
-npx playwright test
-```
+## Known Limitations (Phase 1)
 
-## Known Limitations
-
-- Phase 1 does not support multi-page flows or iframe interactions
-- Dynamic content (e.g., infinite scroll, live search) may affect locator stability
-- Generated locators require a running application to validate against
-- Authentication state is not persisted between runs
-
-## Roadmap
-
-- **Phase 2**: AI-assisted locator healing and self-repair
-- **Phase 3**: Visual regression testing integration
-- **Phase 4**: Natural language test generation via LLM integration
-- **Phase 5**: CI/CD pipeline integration and reporting dashboard
+- Multi-page flows and iframe interactions are not supported.
+- Dynamic content (infinite scroll, live search) may affect locator stability.
+- Generated locators are resolved against the live DOM at generation time; they require the target application to be running.
+- Authentication state is not persisted between agent runs.
+- Job history and logs are stored in memory and are lost when the API process restarts.

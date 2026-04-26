@@ -24,9 +24,32 @@ const releaseGlobalSlot = (onRelease: (active: number, max: number) => void): vo
   onRelease(GLOBAL_ACTIVE_AGENTS, runtimeConfig.MAX_GLOBAL_AGENTS);
 };
 
+/**
+ * Manages a pool of child agent processes for a batch job.
+ *
+ * Enforces two levels of concurrency control:
+ * 1. A per-job concurrency cap (requestedConcurrency / MAX_PARALLEL_AGENTS_PER_JOB).
+ * 2. A global concurrency cap (MAX_GLOBAL_AGENTS) shared across all running jobs on the server.
+ *
+ * Child agents are retried up to job.retryCount + 1 times on failure before being marked as failed.
+ * Global slots are acquired before each child run and released in a finally block to prevent leaks.
+ */
 export class AgentPoolManager {
   private readonly runner = new ChildJobRunner();
 
+  /**
+   * Runs all split test case files through child agent processes with controlled parallelism.
+   *
+   * Spawns up to `requestedConcurrency` concurrent workers (capped by MAX_PARALLEL_AGENTS_PER_JOB
+   * and MAX_GLOBAL_AGENTS). Each worker pulls from the shared queue until all splits are processed.
+   * Failed splits are retried according to job.retryCount before being included as failures.
+   *
+   * @param job - The job entity used for logging and retry configuration.
+   * @param splits - Array of split file descriptors, each containing a childId and file path.
+   * @param requestedConcurrency - Desired number of parallel child agents for this job.
+   * @param aiConfig - Optional AI configuration passed through to each child agent process.
+   * @returns Array of child run results, one per split, in completion order.
+   */
   async runAll(
     job: JobEntity,
     splits: SplitResult[],
