@@ -140,7 +140,7 @@ export default function AiConfigPanel({
                 </button>
               </div>
               <p className="mt-1 text-xs text-gray-400">
-                Your key is sent over HTTPS and never stored or logged.
+                API key is used only for this job. It is not stored, logged, or included in the generated ZIP.
               </p>
             </div>
           )}

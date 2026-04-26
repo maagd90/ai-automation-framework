@@ -391,6 +391,8 @@ export class BatchJobManager {
     return text
       .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
       .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .replace(/AIza[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .replace(/(OPENAI_API_KEY|GEMINI_API_KEY|AZURE_OPENAI_API_KEY)\s*=\s*(?:"[^"]*"|'[^']*'|\S+)/gi, '$1=[REDACTED]')
       .replace(/api[_-]?key["'=:\s]+[A-Za-z0-9._-]+/gi, 'apiKey=[REDACTED]')
       .replace(/[A-Za-z0-9._%+-]+:[^@\s]+@/g, '[REDACTED_CREDENTIALS]@')
       .slice(0, 4000);

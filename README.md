@@ -175,7 +175,9 @@ The UI container uses nginx to proxy all `/api/…` browser requests to the API 
 | `ENABLE_AI_PROVIDERS` | `false` | Enables AI provider selection in the UI and API |
 | `ENABLE_LOCAL_LLM` | `false` | Enables local LLM option (requires `ENABLE_AI_PROVIDERS=true`) |
 | `ENABLE_TRACE_VIDEO` | `false` | Enables trace and video capture on test failure |
-| `GEMINI_API_KEY` | _(empty)_ | Gemini API key — never logged or committed |
+| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key — optional server-side fallback; never logged or committed |
+| `GEMINI_API_KEY` | _(empty)_ | Gemini API key — optional server-side fallback; never logged or committed |
+| `AZURE_OPENAI_API_KEY` | _(empty)_ | Azure OpenAI API key — optional server-side fallback; never logged or committed |
 
 ---
 
@@ -286,9 +288,22 @@ generated-project/
 
 - Uploaded files are validated — only `.txt`, `.json`, and `.feature` are accepted (max 5 MB).
 - File paths are sanitized before use.
-- `GEMINI_API_KEY` is never logged by the API and is never included in the generated ZIP.
+- API keys entered in the UI are used only for that job; they are not stored, logged, or included in the generated ZIP.
 - Demo mode enforces per-IP rate limits to prevent abuse.
 - Agent internals are not exposed through the UI or API responses.
+
+### AI API key behavior
+
+- Users can enter API keys in the UI per job.
+- The key is used only for that job and is never stored in the job record, written to report.json, written to logs.txt, or included in the downloaded ZIP.
+- Environment variables act as an optional server-side fallback when no UI key is supplied:
+  - `OPENAI_API_KEY` — fallback for OpenAI
+  - `GEMINI_API_KEY` — fallback for Google Gemini
+  - `AZURE_OPENAI_API_KEY` — fallback for Azure OpenAI
+- If a provider that requires a key (OpenAI, Gemini, Azure) is selected and neither a UI key nor an env fallback is present, the API returns HTTP 400 before creating the job.
+- Local LLM and `none` providers do not require an API key.
+- HTTPS is recommended when entering API keys via the UI.
+- Cloudflare Tunnel provides HTTPS automatically for demo access without modifying `.env`.
 
 ---
 

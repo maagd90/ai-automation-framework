@@ -26,6 +26,13 @@ const EXT_TO_LABEL: Readonly<Record<string, string>> = {
   '.feature': 'feature',
 };
 
+/** Maps AI providers to the environment variable used as a key fallback. */
+const PROVIDER_ENV_KEY: Readonly<Partial<Record<string, string>>> = {
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  azure: 'AZURE_OPENAI_API_KEY',
+};
+
 export class JobsController {
   createJob(req: Request, res: Response): void {
     // ── Per-IP daily rate limit ──────────────────────────────────────────────
@@ -99,6 +106,22 @@ export class JobsController {
       videoOnFailure = false;
     }
 
+    // ── AI API key resolution and validation ─────────────────────────────────
+    // Resolve API key: UI-submitted key takes precedence; fall back to the
+    // provider-specific environment variable when the UI key is absent.
+    // The resolved key is never logged, stored in JobEntity, or returned.
+    const envKeyName = PROVIDER_ENV_KEY[provider];
+    // Treat blank UI input the same as absent — trim and convert to undefined first.
+    const uiApiKey = apiKey?.trim() || undefined;
+    const resolvedApiKey = uiApiKey ?? (envKeyName ? process.env[envKeyName] : undefined);
+
+    // Providers that require a key must have one before the job is created.
+    if (envKeyName && !resolvedApiKey) {
+      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      res.status(400).json({ error: 'API key is required for selected AI provider.' });
+      return;
+    }
+
     const jobId = uuidv4();
     // inputDir is derived entirely from server-controlled values (JOBS_BASE_DIR + uuid)
     const inputDir = path.resolve(JOBS_BASE_DIR_RESOLVED, jobId, 'input');
@@ -126,12 +149,12 @@ export class JobsController {
 
     jobStore.set(job);
 
-    // Build AiConfig — apiKey is never logged or returned
+    // Build AiConfig — resolvedApiKey is never logged or returned; it is not stored in JobEntity
     const aiConfig =
       provider !== 'none'
         ? {
             provider,
-            apiKey,
+            apiKey: resolvedApiKey,
             model,
             baseUrl,
             usedFor: {
