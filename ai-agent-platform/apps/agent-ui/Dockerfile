@@ -14,18 +14,18 @@ RUN npm ci
 RUN npm run build:types && npm run build:ui
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM node:18-alpine
+# nginx:alpine serves the built React SPA and proxies /api requests to the
+# API container so the browser's relative /api calls are forwarded correctly.
+# Playwright browsers are NOT required in the UI container.
+FROM nginx:alpine
 
-WORKDIR /app
+# Copy the Vite production bundle into nginx's default serve directory
+COPY --from=builder /app/ai-agent-platform/apps/agent-ui/dist /usr/share/nginx/html
 
-# Bring in the Vite production bundle and the Vite CLI so `vite preview` works
-COPY --from=builder /app/ai-agent-platform ./ai-agent-platform
+# Use the custom nginx config (SPA fallback + /api reverse proxy)
+COPY ai-agent-platform/apps/agent-ui/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Vite preview serves the built UI; --host 0.0.0.0 makes it reachable inside Docker
-ENV PORT=5173
 EXPOSE 5173
 
-CMD ["node", "ai-agent-platform/node_modules/.bin/vite", "preview", \
-     "--config", "ai-agent-platform/apps/agent-ui/vite.config.ts", \
-     "--host", "0.0.0.0", \
-     "--port", "5173"]
+CMD ["nginx", "-g", "daemon off;"]
+

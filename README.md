@@ -85,8 +85,7 @@ ai-automation-framework/
 │       └── shared-types/        # Shared TypeScript interfaces
 ├── examples/                    # Sample test case files
 ├── tests/                       # Unit tests (Vitest)
-├── Dockerfile                   # Multi-stage Docker build
-├── docker-compose.yml           # Local Docker environment
+├── docker-compose.yml           # Docker environment (API + UI containers)
 └── .env.example                 # Environment variable reference
 ```
 
@@ -154,9 +153,11 @@ docker-compose up --build
 | Container | Base image | Responsibilities |
 |---|---|---|
 | `api` | `mcr.microsoft.com/playwright:v1.41.0-jammy` | Express API + Playwright/Chromium + CLI |
-| `ui` | `node:18-alpine` | React UI served via `vite preview` |
+| `ui` | `nginx:alpine` | Serves the built React SPA and proxies `/api` requests to the API container |
 
 Playwright browsers are **pre-installed** in the official base image at `/ms-playwright`. No `npx playwright install` is needed at runtime.
+
+The UI container uses nginx to proxy all `/api/…` browser requests to the API container internally. The browser always calls relative `/api` paths — no host-side port forwarding or configuration is needed.
 
 ---
 

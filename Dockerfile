@@ -1,3 +1,9 @@
+# ── NOTE: This Dockerfile is NOT used by docker-compose. ──────────────────────
+# The active API Dockerfile is:
+#   ai-agent-platform/apps/agent-api/Dockerfile
+#
+# This file is kept as a standalone reference. Use docker-compose up --build
+# to build and run the full stack. Do not build this file directly.
 # ── Stage 1: build ────────────────────────────────────────────────────────────
 # Use the official Playwright image so Chromium and its system libraries are
 # pre-installed at /ms-playwright.  The version pin matches package.json.

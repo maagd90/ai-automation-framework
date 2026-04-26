@@ -12,10 +12,12 @@ services:
       - '3001:3001'
     environment:
       PORT: '3001'
+      # Demo mode — enables conservative resource limits suitable for local machines
+      DEMO_MODE: 'true'
       # Playwright — use pre-installed browsers from the Playwright base image
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      # Skip per-job npm install; use the platform runtime
+      # Skip per-job npm install; use the platform runtime instead
       INSTALL_GENERATED_PROJECT_DEPS: 'false'
       # Concurrency — conservative defaults for low-memory demo environments
       MAX_GLOBAL_AGENTS: '1'
@@ -25,7 +27,7 @@ services:
       ENABLE_AI_PROVIDERS: 'true'
       ENABLE_LOCAL_LLM: 'false'
       ENABLE_TRACE_VIDEO: 'false'
-      # CORS — allow the UI container
+      # CORS — allow the UI container (accessed from the host browser)
       ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
       JOBS_DIR: /tmp/jobs
       JOB_RETENTION_HOURS: '24'
@@ -48,7 +50,10 @@ services:
       retries: 3
       start_period: 20s
 
-  # ── UI (React + Vite preview) ─────────────────────────────────────────────────
+  # ── UI (React + nginx) ────────────────────────────────────────────────────────
+  # nginx serves the built React SPA and proxies /api requests to the API
+  # container, so the browser's relative /api calls are forwarded correctly
+  # without any host-side configuration.
   ui:
     build:
       context: .
@@ -57,13 +62,10 @@ services:
     container_name: agent-ui
     ports:
       - '5173:5173'
-    environment:
-      # Point the browser-side API client at the host-mapped API port
-      VITE_API_BASE_URL: 'http://localhost:3001/api'
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     restart: unless-stopped
 
 volumes:
   ai-agent-jobs:
+
