@@ -34,10 +34,33 @@ const PROVIDER_ENV_KEY: Readonly<Partial<Record<string, string>>> = {
   azure: 'AZURE_OPENAI_API_KEY',
 };
 
+/**
+ * Moves a file from sourcePath to targetPath in a cross-device safe manner.
+ *
+ * On the same filesystem, fs.renameSync is used (atomic, fast).
+ * When source and target are on different filesystems (EXDEV), the file is
+ * copied then the source is deleted — which is the standard fallback.
+ */
+function moveUploadedFileSafely(sourcePath: string, targetPath: string): void {
+  try {
+    fs.renameSync(sourcePath, targetPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
+      fs.copyFileSync(sourcePath, targetPath);
+      fs.unlinkSync(sourcePath);
+      return;
+    }
+    throw error;
+  }
+}
+
 export class JobsController {
   async createJob(req: Request, res: Response): Promise<void> {
     const requestId = uuidv4();
     logger.info('POST /api/jobs received', { requestId });
+
+    // Declared outside try so the catch block can clean up the temp file on failure.
+    let uploadedPath: string | undefined;
 
     try {
     // ── Per-IP daily rate limit ──────────────────────────────────────────────
@@ -65,7 +88,7 @@ export class JobsController {
     });
 
     // ── Validate upload path is within OS temp dir (multer-generated, not user-chosen) ─
-    const uploadedPath = path.resolve(file.path);
+    uploadedPath = path.resolve(file.path);
     const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
     if (!isInTemp) {
       logger.error('Upload path outside temp dir', { requestId, uploadedPath });
@@ -165,8 +188,55 @@ export class JobsController {
     // inputFilePath uses only server-controlled components:
     //   inputDir (server)  +  'testcases'  +  typeLabel (from EXT_TO_LABEL, not from user)
     const inputFilePath = path.resolve(inputDir, `testcases.${typeLabel}`);
-    // Move from temp → job input dir
-    fs.renameSync(uploadedPath, inputFilePath);
+    // Move from temp → job input dir (cross-device safe)
+    console.log('[JobsController] Upload received', {
+      originalName: file.originalname,
+      size: file.size,
+      uploadedPath,
+      targetPath: inputFilePath,
+    });
+    logger.info('Moving uploaded file to job input dir', { requestId, uploadedPath, targetPath: inputFilePath });
+    moveUploadedFileSafely(uploadedPath, inputFilePath);
+    console.log('[JobsController] Uploaded file moved successfully', {
+      jobId,
+      targetPath: inputFilePath,
+    });
+    logger.info('Uploaded file moved successfully', { requestId, jobId, targetPath: inputFilePath });
+
+    // ── Early JSON test-case count validation ────────────────────────────────
+    // Enforces MAX_TEST_CASES_PER_JOB before creating the job entity so the
+    // caller receives an HTTP 400 (not a 500 from the async runner).
+    if (ext === '.json') {
+      try {
+        const fileContent = fs.readFileSync(inputFilePath, 'utf8');
+        const fileJson = JSON.parse(fileContent) as Record<string, unknown>;
+        const count = Array.isArray(fileJson['testCases'])
+          ? (fileJson['testCases'] as unknown[]).length
+          : 1;
+        if (count > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
+          // Clean up the just-created job input directory
+          try { fs.rmSync(inputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+          logger.warn('Test case count exceeds limit', {
+            requestId,
+            count,
+            limit: runtimeConfig.MAX_TEST_CASES_PER_JOB,
+          });
+          res.status(400).json({
+            error:
+              `This file contains ${count} test cases. Demo limit is ` +
+              `${runtimeConfig.MAX_TEST_CASES_PER_JOB}. Increase MAX_TEST_CASES_PER_JOB ` +
+              `or upload a smaller file.`,
+          });
+          return;
+        }
+      } catch (parseErr) {
+        // Non-fatal: if we can't pre-validate let the batch runner report the error.
+        logger.warn('Could not pre-validate JSON test case count', {
+          requestId,
+          error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        });
+      }
+    }
 
     const job = new JobEntity({
       jobId,
@@ -212,7 +282,17 @@ export class JobsController {
     res.status(201).json({ jobId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error('[JobsController] Job creation failed', {
+        message: msg,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       logger.error('Job creation failed unexpectedly', { requestId, error: msg });
+
+      // Clean up the multer temp file if it was not yet moved successfully.
+      if (uploadedPath && fs.existsSync(uploadedPath)) {
+        try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      }
+
       if (!res.headersSent) {
         res.status(500).json({ error: msg });
       }
