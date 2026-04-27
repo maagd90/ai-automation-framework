@@ -130,7 +130,7 @@ export class StepNlpAnalyzer {
     // ── URL redirect / navigation verification ──────────────────────────────
     // Use simple indexOf-based detection to avoid complex regex alternation
     const lowerText = text.toLowerCase();
-    const redirectPhrases = ['should be redirected to', 'should be redirect to', 'is redirected to', 'url should be', 'navigated to'];
+    const redirectPhrases = ['should be redirected to', 'is redirected to', 'url should be', 'navigated to'];
     for (const phrase of redirectPhrases) {
       const idx = lowerText.indexOf(phrase);
       if (idx !== -1) {

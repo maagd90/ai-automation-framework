@@ -57,11 +57,13 @@ declare module 'multer' {
     fields(fields: Array<{ name: string; maxCount?: number }>): RequestHandler;
     none(): RequestHandler;
     diskStorage(options: DiskStorageOptions): StorageEngine;
+    memoryStorage(): StorageEngine;
   }
 
   function multer(options?: Options): Multer;
   namespace multer {
     function diskStorage(options: DiskStorageOptions): StorageEngine;
+    function memoryStorage(): StorageEngine;
   }
 
   export = multer;
