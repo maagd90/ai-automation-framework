@@ -2,12 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
+import type { Request, Response, NextFunction } from 'express';
 import { jobsRouter } from './routes/jobs.router';
 import { configRouter } from './routes/config.router';
 import { runtimeConfig } from './config/runtime.config';
 import { featureFlags } from './config/feature.config';
 import { checkPlaywrightReadiness } from './services/PlaywrightReadinessCheck';
 import { pruneOldJobs } from './services/JobRetentionService';
+import { logger } from './utils/logger';
 
 /** Read the container memory limit from the cgroup v2 or v1 file, if available.
  *
@@ -91,6 +93,29 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ── Multer error handler ───────────────────────────────────────────────────
+// Must have 4 parameters to be treated as an error-handling middleware by Express.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error & { code?: string }, _req: Request, res: Response, next: NextFunction) => {
+  if (err.name === 'MulterError' || err.code?.startsWith('LIMIT_')) {
+    logger.warn('Multer upload error', { error: err.message, code: err.code });
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  next(err);
+});
+
+// ── Global error handler ───────────────────────────────────────────────────
+// Catches anything passed to next(err) or thrown inside async route handlers.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  const msg = err?.message ?? 'Internal server error';
+  logger.error('Unhandled request error', { error: msg, stack: err?.stack });
+  if (!res.headersSent) {
+    res.status(500).json({ error: msg });
+  }
 });
 
 app.listen(PORT, () => {

@@ -35,9 +35,11 @@ const PROVIDER_ENV_KEY: Readonly<Partial<Record<string, string>>> = {
 };
 
 export class JobsController {
-  createJob(req: Request, res: Response): void {
+  async createJob(req: Request, res: Response): Promise<void> {
     const requestId = uuidv4();
+    logger.info('POST /api/jobs received', { requestId });
 
+    try {
     // ── Per-IP daily rate limit ──────────────────────────────────────────────
     const clientIp = req.ip ?? 'unknown';
     if (!ipRateLimiter.tryConsume(clientIp)) {
@@ -208,6 +210,13 @@ export class JobsController {
     });
 
     res.status(201).json({ jobId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Job creation failed unexpectedly', { requestId, error: msg });
+      if (!res.headersSent) {
+        res.status(500).json({ error: msg || 'Job creation failed' });
+      }
+    }
   }
 
   getStatus(req: Request, res: Response): void {

@@ -13,7 +13,13 @@ const upload = multer({
 
 const router = Router();
 
-router.post('/', upload.single('file'), (req, res) => jobsController.createJob(req, res));
+router.post('/', upload.single('file'), async (req, res, next) => {
+  try {
+    await jobsController.createJob(req, res);
+  } catch (err) {
+    next(err);
+  }
+});
 router.get('/:jobId/status', (req, res) => jobsController.getStatus(req, res));
 router.get('/:jobId/logs', (req, res) => jobsController.getLogs(req, res));
 router.get('/:jobId/report', (req, res) => jobsController.getReport(req, res));
