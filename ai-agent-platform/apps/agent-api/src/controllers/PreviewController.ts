@@ -6,7 +6,22 @@ import { ExcelBatchTestCaseParser } from '@ai-agent/agent-core';
 import type { ExcelPreviewResponse } from '@ai-agent/shared-types';
 import { NLP_CONFIDENCE_THRESHOLD } from '@ai-agent/agent-core';
 
+// Resolved temp directory used as the path containment boundary.
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
+
+/**
+ * Returns the upload path only if it is safely contained within the OS temp dir.
+ * Multer's diskStorage generates the filename server-side; this ensures no
+ * path traversal can escape the temp boundary.
+ */
+function resolveSafeTempPath(multerPath: string): string | null {
+  const resolved = path.resolve(multerPath);
+  const tempBoundary = TEMP_DIR.endsWith(path.sep) ? TEMP_DIR : TEMP_DIR + path.sep;
+  if (!resolved.startsWith(tempBoundary) && resolved !== TEMP_DIR) {
+    return null;
+  }
+  return resolved;
+}
 
 export class PreviewController {
   async previewExcel(req: Request, res: Response): Promise<void> {
@@ -16,31 +31,34 @@ export class PreviewController {
       return;
     }
 
-    const uploadedPath = path.resolve(file.path);
-    const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
-    if (!isInTemp) {
+    // Validate that the multer-generated upload path is within temp dir
+    const safePath = resolveSafeTempPath(file.path);
+    if (!safePath) {
       res.status(400).json({ error: 'Invalid upload path' });
       return;
     }
 
+    // Validate extension from original filename (for user display only)
     const ext = path.extname(file.originalname).toLowerCase();
     if (ext !== '.xlsx') {
-      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      try { fs.unlinkSync(safePath); } catch { /* best-effort cleanup */ }
       res.status(400).json({ error: 'Preview only supports .xlsx files' });
       return;
     }
 
+    // Use only the basename for display (never as a filesystem path)
+    const displayFilename = path.basename(file.originalname);
+
     try {
-      const buffer = fs.readFileSync(uploadedPath);
-      const filename = path.basename(file.originalname);
-      const { preview } = await new ExcelBatchTestCaseParser().parseBuffer(buffer, filename);
+      const buffer = fs.readFileSync(safePath);
+      const { preview } = await new ExcelBatchTestCaseParser().parseBuffer(buffer, displayFilename);
 
       const lowConfidenceCount = preview.filter(
         (r) => r.confidence < NLP_CONFIDENCE_THRESHOLD,
       ).length;
 
       const response: ExcelPreviewResponse = {
-        filename,
+        filename: displayFilename,
         totalSteps: preview.length,
         lowConfidenceCount,
         rows: preview,
@@ -51,7 +69,7 @@ export class PreviewController {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(422).json({ error: `Failed to parse Excel file: ${msg}` });
     } finally {
-      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      try { fs.unlinkSync(safePath); } catch { /* best-effort cleanup */ }
     }
   }
 }

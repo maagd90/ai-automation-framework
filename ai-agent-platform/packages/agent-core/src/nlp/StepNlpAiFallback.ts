@@ -54,7 +54,14 @@ export class StepNlpAiFallback {
   constructor(private readonly provider: IAiProvider) {}
 
   async classify(stepText: string, ruleResult: NlpResult): Promise<NlpResult> {
-    const prompt = AI_FALLBACK_PROMPT.replace('{{step}}', stepText.replace(/"/g, '\\"'));
+    // Escape for safe embedding in a JSON string value:
+    // first escape backslashes, then double-quotes, then control characters
+    const safeStep = stepText
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r');
+    const prompt = AI_FALLBACK_PROMPT.replace('{{step}}', safeStep);
     let responseText = '';
     try {
       const req: AiCompletionRequest = { prompt, maxTokens: 256 };

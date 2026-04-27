@@ -29,15 +29,19 @@ export interface NlpResult {
 
 export const NLP_CONFIDENCE_THRESHOLD = 0.70;
 
+/** Maximum step text length accepted by the NLP analyzer to prevent ReDoS. */
+const MAX_STEP_LENGTH = 500;
+
 /** Normalise a raw Action column value to a canonical action type. */
 export function normalizeActionColumn(raw: string): NlpActionType | null {
   const v = raw.trim().toLowerCase();
   if (/^(input|type|fill|enter|write)$/.test(v)) return 'enter';
   if (/^(press|click|tap)$/.test(v)) return 'click';
   if (/^(choose|dropdown|select)$/.test(v)) return 'select';
-  if (/^(validate|assert|check|verify|should\s+see|verifyvisible|verifytext)$/.test(v)) {
+  if (/^(validate|assert|check|verify|verifyvisible|verifytext)$/.test(v)) {
     return 'verifyVisible';
   }
+  if (/^(should see)$/.test(v)) return 'verifyVisible';
   if (/^(untick|uncheck)$/.test(v)) return 'uncheck';
   if (/^(tick)$/.test(v)) return 'check';
   if (/^(navigate|go|open|verifyurl)$/.test(v)) return 'navigate';
@@ -50,188 +54,153 @@ export function normalizeActionColumn(raw: string): NlpActionType | null {
  */
 export class StepNlpAnalyzer {
   analyze(stepText: string): NlpResult {
+    // Guard against ReDoS from excessively long inputs
+    if (stepText.length > MAX_STEP_LENGTH) {
+      return { action: 'click', target: stepText.slice(0, 100), confidence: 0.30, source: 'nlp-rule' };
+    }
+
     const text = stepText.trim();
 
     // ── Enter / type / fill ─────────────────────────────────────────────────
-    // "Enter username standard_user"  — value after target word
-    const enterKw = /^(?:enter|type|fill|input|write)\s+(.+)/i.exec(text);
+    const enterKw = /^(?:enter|type|fill|input|write) (.+)/i.exec(text);
     if (enterKw) {
       const rest = enterKw[1];
       // Try quoted value first: Enter "val" into target
-      const quotedValue = /^"([^"]+)"\s+(?:into|in|in the|on)\s+(.+)$/i.exec(rest);
+      // Use non-backtracking literal "into/in/on" detection
+      const quotedValue = /^"([^"]+)" (?:into?(?:(?: the)?)?|on) (.+)$/i.exec(rest);
       if (quotedValue) {
-        return {
-          action: 'enter',
-          target: quotedValue[2].trim(),
-          value: quotedValue[1],
-          confidence: 0.95,
-          source: 'nlp-rule',
-        };
+        return { action: 'enter', target: quotedValue[2].trim(), value: quotedValue[1], confidence: 0.95, source: 'nlp-rule' };
       }
       // Try "into/in" form: Enter username into Username field
-      const intoForm = /^(\S+)\s+(?:into|in|in the|on)\s+(.+)$/i.exec(rest);
+      const intoForm = /^(\S+) (?:into?(?:(?: the)?)?|on) (.+)$/i.exec(rest);
       if (intoForm) {
-        return {
-          action: 'enter',
-          target: intoForm[2].trim(),
-          value: intoForm[1],
-          confidence: 0.90,
-          source: 'nlp-rule',
-        };
+        return { action: 'enter', target: intoForm[2].trim(), value: intoForm[1], confidence: 0.90, source: 'nlp-rule' };
       }
-      // "Enter username standard_user" — first word is target-like, last word is value
-      const words = rest.split(/\s+/);
-      if (words.length >= 2) {
-        const value = words[words.length - 1];
-        const target = words.slice(0, -1).join(' ');
-        return {
-          action: 'enter',
-          target,
-          value,
-          confidence: 0.80,
-          source: 'nlp-rule',
-        };
+      // "Enter username standard_user" — last word is value
+      const spaceIdx = rest.lastIndexOf(' ');
+      if (spaceIdx > 0) {
+        return { action: 'enter', target: rest.slice(0, spaceIdx), value: rest.slice(spaceIdx + 1), confidence: 0.80, source: 'nlp-rule' };
       }
-      return {
-        action: 'enter',
-        target: rest,
-        confidence: 0.75,
-        source: 'nlp-rule',
-      };
+      return { action: 'enter', target: rest, confidence: 0.75, source: 'nlp-rule' };
     }
 
     // ── Click / press / tap ─────────────────────────────────────────────────
-    const clickKw = /^(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(text);
+    // Use non-capturing optional prefix words to avoid optional-group stacking
+    const clickKw = /^(?:click|press|tap) (.+)$/i.exec(text);
     if (clickKw) {
-      return {
-        action: 'click',
-        target: clickKw[1].trim(),
-        confidence: 0.92,
-        source: 'nlp-rule',
-      };
+      // Strip common leading articles to get clean target
+      const target = clickKw[1].replace(/^(?:on |the |on the )/i, '').trim();
+      return { action: 'click', target, confidence: 0.92, source: 'nlp-rule' };
     }
 
     // ── Select / choose / dropdown ──────────────────────────────────────────
-    const selectKw = /^(?:select|choose)\s+(.+?)\s+from\s+(.+)$/i.exec(text);
-    if (selectKw) {
-      return {
-        action: 'select',
-        target: selectKw[2].trim(),
-        value: selectKw[1].replace(/^["']|["']$/g, '').trim(),
-        confidence: 0.92,
-        source: 'nlp-rule',
-      };
-    }
-    const selectSimple = /^(?:select|choose)\s+(.+)$/i.exec(text);
-    if (selectSimple) {
-      return {
-        action: 'select',
-        target: selectSimple[1].trim(),
-        confidence: 0.75,
-        source: 'nlp-rule',
-      };
+    // Use indexOf-based split to avoid ReDoS with greedy patterns
+    const selectPrefix = /^(?:select|choose) /i.exec(text);
+    if (selectPrefix) {
+      const rest = text.slice(selectPrefix[0].length);
+      // Look for " from " separator — find LAST occurrence to handle "select X from Y from Z"
+      const fromIdx = rest.toLowerCase().lastIndexOf(' from ');
+      if (fromIdx > 0) {
+        const value = rest.slice(0, fromIdx).replace(/^["']|["']$/g, '').trim();
+        const target = rest.slice(fromIdx + 6).trim();
+        return { action: 'select', target, value, confidence: 0.92, source: 'nlp-rule' };
+      }
+      return { action: 'select', target: rest.trim(), confidence: 0.75, source: 'nlp-rule' };
     }
 
     // ── Uncheck ─────────────────────────────────────────────────────────────
-    const uncheckKw = /^(?:uncheck|untick)\s+(?:the\s+)?(.+)$/i.exec(text);
+    const uncheckKw = /^(?:uncheck|untick) (?:the )?(.+)$/i.exec(text);
     if (uncheckKw) {
-      return {
-        action: 'uncheck',
-        target: uncheckKw[1].trim(),
-        confidence: 0.90,
-        source: 'nlp-rule',
-      };
+      return { action: 'uncheck', target: uncheckKw[1].trim(), confidence: 0.90, source: 'nlp-rule' };
     }
 
     // ── Check / tick ────────────────────────────────────────────────────────
-    const checkKw = /^(?:check|tick)\s+(?:the\s+)?(.+)$/i.exec(text);
+    const checkKw = /^(?:tick) (?:the )?(.+)$/i.exec(text);
     if (checkKw) {
-      return {
-        action: 'check',
-        target: checkKw[1].trim(),
-        confidence: 0.88,
-        source: 'nlp-rule',
-      };
+      return { action: 'check', target: checkKw[1].trim(), confidence: 0.88, source: 'nlp-rule' };
     }
+    // "check" handled below to avoid conflict with verifyVisible
 
     // ── Navigate / go / open ────────────────────────────────────────────────
-    const navigateKw = /^(?:navigate|go|open)\s+(?:to\s+)?(.+)$/i.exec(text);
+    const navigateKw = /^(?:navigate|go|open) (?:to )?(.+)$/i.exec(text);
     if (navigateKw) {
-      return {
-        action: 'navigate',
-        target: navigateKw[1].trim(),
-        confidence: 0.90,
-        source: 'nlp-rule',
-      };
+      return { action: 'navigate', target: navigateKw[1].trim(), confidence: 0.90, source: 'nlp-rule' };
     }
 
     // ── URL redirect / navigation verification ──────────────────────────────
-    const redirectKw =
-      /(?:should\s+be\s+redirected?\s+to|is\s+redirected?\s+to|url\s+should\s+be|navigated?\s+to)\s+(.+)/i.exec(
-        text,
-      );
-    if (redirectKw) {
-      return {
-        action: 'verifyUrl',
-        target: redirectKw[1].trim(),
-        expected: text,
-        confidence: 0.85,
-        source: 'nlp-rule',
-      };
+    // Use simple indexOf-based detection to avoid complex regex alternation
+    const lowerText = text.toLowerCase();
+    const redirectPhrases = ['should be redirected to', 'should be redirect to', 'is redirected to', 'url should be', 'navigated to'];
+    for (const phrase of redirectPhrases) {
+      const idx = lowerText.indexOf(phrase);
+      if (idx !== -1) {
+        const target = text.slice(idx + phrase.length).trim();
+        return { action: 'verifyUrl', target, expected: text, confidence: 0.85, source: 'nlp-rule' };
+      }
     }
 
-    // ── Verify text ─────────────────────────────────────────────────────────
-    const verifyTextKw =
-      /^(?:verify|assert|check|should\s+(?:see|contain|display|have))\s+(?:text\s+)?["']?([^"']+)["']?\s+(?:in|on|at|for)\s+(.+)$/i.exec(
-        text,
-      );
-    if (verifyTextKw) {
-      return {
-        action: 'verifyText',
-        target: verifyTextKw[2].trim(),
-        value: verifyTextKw[1].trim(),
-        expected: text,
-        confidence: 0.88,
-        source: 'nlp-rule',
-      };
+    // ── Verify text (explicit "in/on/at/for" separator) ─────────────────────
+    // Split on " in | on | at | for " instead of complex regex
+    const verifyTextPrefix = /^(?:verify|assert|should (?:see|contain|display|have)) (?:text )?/i.exec(text);
+    if (verifyTextPrefix) {
+      const rest = text.slice(verifyTextPrefix[0].length);
+      const sepMatch = / (?:in|on|at|for) /i.exec(rest);
+      if (sepMatch) {
+        const value = rest.slice(0, sepMatch.index).replace(/^["']|["']$/g, '').trim();
+        const target = rest.slice(sepMatch.index + sepMatch[0].length).trim();
+        return { action: 'verifyText', target, value, expected: text, confidence: 0.88, source: 'nlp-rule' };
+      }
     }
 
     // ── Verify visible ──────────────────────────────────────────────────────
-    const verifyVisibleKw =
-      /^(?:verify|assert|check|validate|should\s+see)\s+(?:that\s+)?(.+?)\s+(?:is\s+)?(?:visible|displayed|shown|present|appears)$/i.exec(
-        text,
-      );
-    if (verifyVisibleKw) {
-      return {
-        action: 'verifyVisible',
-        target: verifyVisibleKw[1].trim(),
-        expected: text,
-        confidence: 0.88,
-        source: 'nlp-rule',
-      };
+    // Check if text ends with visibility keyword
+    // Note: 'check' is handled separately to avoid conflict with checkbox 'check' action
+    const visibilityEndings = ['is visible', 'is displayed', 'is shown', 'is present', 'appears', 'should be visible', 'should be displayed'];
+    const verifyPrefixes = ['verify ', 'assert ', 'validate ', 'should see '];
+    for (const vp of verifyPrefixes) {
+      if (lowerText.startsWith(vp)) {
+        const rest = text.slice(vp.length).replace(/^that /i, '');
+        for (const ending of visibilityEndings) {
+          if (rest.toLowerCase().endsWith(' ' + ending)) {
+            const target = rest.slice(0, rest.length - ending.length - 1).trim();
+            return { action: 'verifyVisible', target, expected: text, confidence: 0.88, source: 'nlp-rule' };
+          }
+          if (rest.toLowerCase() === ending) {
+            return { action: 'verifyVisible', target: rest, expected: text, confidence: 0.75, source: 'nlp-rule' };
+          }
+        }
+        // Fallback: treat rest as target to verify
+        return { action: 'verifyVisible', target: rest.trim(), expected: text, confidence: 0.75, source: 'nlp-rule' };
+      }
+    }
+
+    // ── Check (disambiguated: verifyVisible vs checkbox tick) ────────────────
+    const checkPrefix = /^check (?:the )?(.+)$/i.exec(text);
+    if (checkPrefix) {
+      const tgt = checkPrefix[1].trim();
+      const tgtLower = tgt.toLowerCase();
+      // If it starts with "that" or ends with a visibility keyword → treat as assertion
+      const hasVisibilityEnding = visibilityEndings.some((e) => tgtLower.endsWith(' ' + e) || tgtLower === e);
+      const startsWithThat = tgtLower.startsWith('that ');
+      if (hasVisibilityEnding || startsWithThat) {
+        const cleanTarget = startsWithThat ? tgt.slice(5) : tgt;
+        return { action: 'verifyVisible', target: cleanTarget.trim(), expected: text, confidence: 0.85, source: 'nlp-rule' };
+      }
+      // Otherwise treat as a checkbox interaction
+      return { action: 'check', target: tgt, confidence: 0.78, source: 'nlp-rule' };
     }
 
     // ── Fallback: "should" assertions ───────────────────────────────────────
-    const shouldKw =
-      /^(?:(?:the\s+)?(.+?)\s+should\s+(?:be\s+)?(?:visible|displayed|shown|present))$/i.exec(
-        text,
-      );
-    if (shouldKw) {
-      return {
-        action: 'verifyVisible',
-        target: shouldKw[1].trim(),
-        expected: text,
-        confidence: 0.80,
-        source: 'nlp-rule',
-      };
+    const shouldIdx = lowerText.indexOf(' should be ');
+    if (shouldIdx > 0) {
+      const target = text.slice(0, shouldIdx).replace(/^the /i, '').trim();
+      const assertion = lowerText.slice(shouldIdx + 11);
+      if (['visible', 'displayed', 'shown', 'present'].includes(assertion.trim())) {
+        return { action: 'verifyVisible', target, expected: text, confidence: 0.80, source: 'nlp-rule' };
+      }
     }
 
     // ── Low-confidence fallback ─────────────────────────────────────────────
-    return {
-      action: 'click',
-      target: text,
-      confidence: 0.40,
-      source: 'nlp-rule',
-    };
+    return { action: 'click', target: text, confidence: 0.40, source: 'nlp-rule' };
   }
 }
