@@ -111,7 +111,7 @@ app.use((err: Error & { code?: string }, _req: Request, res: Response, next: Nex
 // Catches anything passed to next(err) or thrown inside async route handlers.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  const msg = err?.message ?? 'Internal server error';
+  const msg = err.message ?? 'Internal server error';
   logger.error('Unhandled request error', { error: msg, stack: err?.stack });
   if (!res.headersSent) {
     res.status(500).json({ error: msg });

@@ -214,7 +214,7 @@ export class JobsController {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Job creation failed unexpectedly', { requestId, error: msg });
       if (!res.headersSent) {
-        res.status(500).json({ error: msg || 'Job creation failed' });
+        res.status(500).json({ error: msg });
       }
     }
   }
