@@ -6,6 +6,7 @@ import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
+import { logger } from '../../utils/logger';
 
 const CHILD_JOB_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -82,6 +83,26 @@ export class ChildJobRunner {
 
     return new Promise<ChildRunResult>((resolve, reject) => {
       let timedOut = false;
+
+      // Log command and safe environment flags (never include AI_API_KEY or secrets)
+      logger.info('Child agent starting', {
+        jobId: job.jobId,
+        childId,
+        attempt,
+        command: `node ${args.join(' ')}`,
+        env: {
+          PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
+          HEADLESS: String(job.headless),
+          AI_ENABLED: String((aiConfig?.provider ?? 'none') !== 'none'),
+          AI_PROVIDER: aiConfig?.provider ?? 'none',
+          AI_MODEL: aiConfig?.model ?? '',
+          AI_USE_FOR_PARSING: String(aiConfig?.usedFor?.parsing ?? false),
+          AI_USE_FOR_NAMING: String(aiConfig?.usedFor?.naming ?? false),
+          AI_USE_FOR_FAILURE_ANALYSIS: String(aiConfig?.usedFor?.failureAnalysis ?? false),
+        },
+        startedAt: new Date().toISOString(),
+      });
+
       const child = spawn('node', args, {
         shell: false,
         env: {
@@ -134,21 +155,36 @@ export class ChildJobRunner {
 
       child.on('close', (code) => {
         clearTimeout(timeoutHandle);
+        const durationMs = Date.now() - started;
         if (timedOut) {
+          logger.warn('Child agent timed out', {
+            jobId: job.jobId,
+            childId,
+            attempt,
+            timeoutMs: CHILD_JOB_TIMEOUT_MS,
+            durationMs,
+          });
           resolve({
             childId,
             exitCode: 124,
-            durationMs: Date.now() - started,
+            durationMs,
             attempts: attempt,
             aiUsage: this.readAiUsage(aiUsagePath),
           });
           return;
         }
 
+        const exitCode = code ?? 1;
+        if (exitCode === 0) {
+          logger.info('Child agent completed', { jobId: job.jobId, childId, attempt, exitCode, durationMs });
+        } else {
+          logger.warn('Child agent exited with non-zero code', { jobId: job.jobId, childId, attempt, exitCode, durationMs });
+        }
+
         resolve({
           childId,
-          exitCode: code ?? 1,
-          durationMs: Date.now() - started,
+          exitCode,
+          durationMs,
           attempts: attempt,
           aiUsage: this.readAiUsage(aiUsagePath),
         });

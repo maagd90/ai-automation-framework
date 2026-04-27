@@ -11,6 +11,7 @@ import { playwrightReady } from '../PlaywrightReadinessCheck';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ProjectMerger } from './ProjectMerger';
 import { BatchReportService } from './BatchReportService';
+import { logger } from '../../utils/logger';
 
 /**
  * Orchestrates the full batch test generation pipeline for a single job.
@@ -58,25 +59,48 @@ export class BatchJobManager {
       log(`Execution mode: ${job.executionMode}`);
       log(`Parallel agents: ${job.parallelAgents}`);
       jobStore.set(job);
+      logger.info('Job started', {
+        jobId: job.jobId,
+        url: job.url,
+        executionMode: job.executionMode,
+        parallelAgents: job.parallelAgents,
+      });
 
       // ── Parse ─────────────────────────────────────────────────────────────
       log('Parsing test case file…');
+      logger.info('Parsing test case file', { jobId: job.jobId, inputFile: job.inputFile });
       const content = fs.readFileSync(job.inputFile, 'utf8');
       const parser = new TestCaseParserFactory();
       const batch = parser.parse(job.inputFile, content);
 
       // ── Validate ──────────────────────────────────────────────────────────
+      logger.info('Validating test case batch', { jobId: job.jobId });
       const validator = new TestCaseBatchValidator();
       const validation = validator.validate(batch);
       if (!validation.valid) {
         const msg = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
+        logger.error('Batch validation failed', { jobId: job.jobId, validationErrors: msg });
         throw new Error(`Batch validation failed: ${msg}`);
       }
 
       log(`Parsed ${batch.testCases.length} test case(s) from "${batch.batchName}"`);
+      logger.info('Parsing complete', {
+        jobId: job.jobId,
+        batchName: batch.batchName,
+        totalTestCases: batch.testCases.length,
+        stepsPerTestCase: batch.testCases.map((tc) => ({
+          name: tc.name,
+          steps: tc.steps?.length ?? 0,
+        })),
+      });
 
       // ── Demo/cost guard: enforce per-job test-case cap ────────────────────
       if (batch.testCases.length > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
+        logger.warn('Test case limit exceeded', {
+          jobId: job.jobId,
+          received: batch.testCases.length,
+          allowed: runtimeConfig.MAX_TEST_CASES_PER_JOB,
+        });
         throw new Error(
           `This job contains ${batch.testCases.length} test case(s), which exceeds the ` +
           `per-job limit of ${runtimeConfig.MAX_TEST_CASES_PER_JOB}. ` +
@@ -101,6 +125,7 @@ export class BatchJobManager {
       const splitter = new TestCaseSplitter();
       const splits = splitter.split(batch, splitsDir);
       log(`Split into ${splits.length} child job file(s)`);
+      logger.info('Batch split into child jobs', { jobId: job.jobId, childCount: splits.length });
 
       // ── Execute generation in parallel ────────────────────────────────────
       const effectiveParallelAgents = Math.min(
@@ -110,6 +135,11 @@ export class BatchJobManager {
       log(`Requested parallel agents: ${job.parallelAgents}`);
       log(`Effective parallel agents (capped): ${effectiveParallelAgents}`);
       log(`Generating with ${effectiveParallelAgents} parallel agent(s)…`);
+      logger.info('Starting batch generation', {
+        jobId: job.jobId,
+        requestedParallelAgents: job.parallelAgents,
+        effectiveParallelAgents,
+      });
       const childResults = await this.pool.runAll(job, splits, effectiveParallelAgents, aiConfig);
 
       const failedChildren = childResults.filter((r) => r.exitCode !== 0);
@@ -117,6 +147,11 @@ export class BatchJobManager {
         const summary = failedChildren
           .map((r) => `${r.childId}: exit ${r.exitCode}`)
           .join(', ');
+        logger.error('Child agent(s) failed', {
+          jobId: job.jobId,
+          failedCount: failedChildren.length,
+          summary,
+        });
         throw new Error(
           `Generation failed for ${failedChildren.length} child job(s): ${summary}. Check the job logs for details.`,
         );
@@ -167,6 +202,13 @@ export class BatchJobManager {
 
       job.setStatus(report.status === 'failed' ? 'failed' : 'completed');
       log(`Job finished — ${report.status.toUpperCase()} (${report.passed}/${report.totalCases} passed)`);
+      logger.info('Job completed', {
+        jobId: job.jobId,
+        status: report.status,
+        passed: report.passed,
+        totalCases: report.totalCases,
+        durationMs: report.durationMs,
+      });
       jobStore.set(job);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -182,6 +224,11 @@ export class BatchJobManager {
         summary: `Job failed: ${msg}`,
       };
       log(`ERROR: ${msg}`);
+      logger.error('Job failed', {
+        jobId: job.jobId,
+        error: msg,
+        durationMs: Date.now() - startedAt,
+      });
       const reportPath = path.join(JOBS_BASE_DIR, job.jobId, 'report.json');
       fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
       jobStore.set(job);

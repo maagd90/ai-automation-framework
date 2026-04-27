@@ -12,6 +12,7 @@ import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
 import { runtimeConfig } from '../config/runtime.config';
 import { featureFlags } from '../config/feature.config';
 import { CreateJobSchema } from '../validation/schemas';
+import { logger } from '../utils/logger';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
 const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
@@ -35,9 +36,12 @@ const PROVIDER_ENV_KEY: Readonly<Partial<Record<string, string>>> = {
 
 export class JobsController {
   createJob(req: Request, res: Response): void {
+    const requestId = uuidv4();
+
     // ── Per-IP daily rate limit ──────────────────────────────────────────────
     const clientIp = req.ip ?? 'unknown';
     if (!ipRateLimiter.tryConsume(clientIp)) {
+      logger.warn('Rate limit exceeded', { requestId, clientIp });
       res.status(429).json({
         error: `Daily job limit reached (${runtimeConfig.MAX_DAILY_JOBS_PER_IP} jobs/day per IP). Try again tomorrow.`,
       });
@@ -46,17 +50,33 @@ export class JobsController {
 
     const file = req.file;
     if (!file) {
+      logger.warn('Job creation rejected: no file uploaded', { requestId });
       res.status(400).json({ error: 'No file uploaded' });
       return;
     }
+
+    logger.info('Incoming job request', {
+      requestId,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+    });
 
     // ── Validate upload path is within OS temp dir (multer-generated, not user-chosen) ─
     const uploadedPath = path.resolve(file.path);
     const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
     if (!isInTemp) {
+      logger.error('Upload path outside temp dir', { requestId, uploadedPath });
       res.status(400).json({ error: 'Invalid upload path' });
       return;
     }
+
+    logger.debug('File upload received', {
+      requestId,
+      filePath: uploadedPath,
+      fileExtension: path.extname(file.originalname).toLowerCase(),
+      fileSize: file.size,
+    });
 
     // ── Whitelist extension check ────────────────────────────────────────────
     const ext = path.extname(file.originalname).toLowerCase();
@@ -64,6 +84,7 @@ export class JobsController {
     if (typeLabel === undefined) {
       // Safe to unlink: uploadedPath already confirmed to be inside TEMP_DIR
       if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      logger.warn('File type not allowed', { requestId, fileExtension: ext });
       res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}` });
       return;
     }
@@ -73,6 +94,7 @@ export class JobsController {
     if (!parsed.success) {
       if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      logger.warn('Job request validation failed', { requestId, issues });
       res.status(400).json({ error: `Validation error: ${issues}` });
       return;
     }
@@ -118,9 +140,20 @@ export class JobsController {
     // Providers that require a key must have one before the job is created.
     if (envKeyName && !resolvedApiKey) {
       if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      logger.warn('Missing API key for provider', { requestId, provider });
       res.status(400).json({ error: 'API key is required for selected AI provider.' });
       return;
     }
+
+    logger.info('Job request validated', {
+      requestId,
+      provider,
+      executionMode,
+      parallelAgents,
+      url,
+      fileType: typeLabel,
+      fileSize: file.size,
+    });
 
     const jobId = uuidv4();
     // inputDir is derived entirely from server-controlled values (JOBS_BASE_DIR + uuid)
@@ -149,6 +182,8 @@ export class JobsController {
 
     jobStore.set(job);
 
+    logger.info('Job created', { jobId, requestId });
+
     // Build AiConfig — resolvedApiKey is never logged or returned; it is not stored in JobEntity
     const aiConfig =
       provider !== 'none'
@@ -168,6 +203,7 @@ export class JobsController {
     // Run asynchronously — do not await
     void batchJobManager.run(job, aiConfig).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Unhandled runner error', { jobId, error: msg });
       console.error(`[Job ${jobId}] Unhandled runner error: ${msg}`);
     });
 
