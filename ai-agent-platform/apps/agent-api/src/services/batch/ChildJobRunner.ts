@@ -89,7 +89,7 @@ export class ChildJobRunner {
         jobId: job.jobId,
         childId,
         attempt,
-        command: `node ${args.join(' ')}`,
+        script: 'agent-core/generate',
         env: {
           PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
           HEADLESS: String(job.headless),

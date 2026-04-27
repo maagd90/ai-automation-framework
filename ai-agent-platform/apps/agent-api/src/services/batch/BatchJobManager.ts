@@ -84,14 +84,16 @@ export class BatchJobManager {
       }
 
       log(`Parsed ${batch.testCases.length} test case(s) from "${batch.batchName}"`);
+      const stepCounts = batch.testCases.map((tc) => tc.steps?.length ?? 0);
       logger.info('Parsing complete', {
         jobId: job.jobId,
         batchName: batch.batchName,
         totalTestCases: batch.testCases.length,
-        stepsPerTestCase: batch.testCases.map((tc) => ({
-          name: tc.name,
-          steps: tc.steps?.length ?? 0,
-        })),
+        steps: {
+          min: stepCounts.length > 0 ? Math.min(...stepCounts) : 0,
+          max: stepCounts.length > 0 ? Math.max(...stepCounts) : 0,
+          total: stepCounts.reduce((sum, n) => sum + n, 0),
+        },
       });
 
       // ── Demo/cost guard: enforce per-job test-case cap ────────────────────
