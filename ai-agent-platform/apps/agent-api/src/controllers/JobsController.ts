@@ -6,8 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { jobStore } from '../services/JobStore';
 import { batchJobManager } from '../services/batch/BatchJobManager';
 import { zipService } from '../services/ZipService';
+import { ipRateLimiter } from '../services/IpRateLimiter';
 import { JobEntity } from '../domain/Job';
 import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
+import { runtimeConfig } from '../config/runtime.config';
+import { featureFlags } from '../config/feature.config';
 import { CreateJobSchema } from '../validation/schemas';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
@@ -24,8 +27,24 @@ const EXT_TO_LABEL: Readonly<Record<string, string>> = {
   '.xlsx': 'xlsx',
 };
 
+/** Maps AI providers to the environment variable used as a key fallback. */
+const PROVIDER_ENV_KEY: Readonly<Partial<Record<string, string>>> = {
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  azure: 'AZURE_OPENAI_API_KEY',
+};
+
 export class JobsController {
   createJob(req: Request, res: Response): void {
+    // ── Per-IP daily rate limit ──────────────────────────────────────────────
+    const clientIp = req.ip ?? 'unknown';
+    if (!ipRateLimiter.tryConsume(clientIp)) {
+      res.status(429).json({
+        error: `Daily job limit reached (${runtimeConfig.MAX_DAILY_JOBS_PER_IP} jobs/day per IP). Try again tomorrow.`,
+      });
+      return;
+    }
+
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: 'No file uploaded' });
@@ -67,9 +86,7 @@ export class JobsController {
       parallelAgents,
       retryCount,
       screenshotOnFailure,
-      traceOnFailure,
-      videoOnFailure,
-      provider,
+      provider: rawProvider,
       apiKey,
       model,
       baseUrl,
@@ -77,6 +94,34 @@ export class JobsController {
       usedForNaming,
       usedForFailureAnalysis,
     } = parsed.data;
+
+    let { traceOnFailure, videoOnFailure } = parsed.data;
+
+    // ── Feature flag enforcement ─────────────────────────────────────────────
+    // If AI providers are disabled server-side, ignore any requested provider.
+    const provider = featureFlags.ENABLE_AI_PROVIDERS ? rawProvider : 'none';
+
+    // If trace/video capture is disabled, silently override to false.
+    if (!featureFlags.ENABLE_TRACE_VIDEO) {
+      traceOnFailure = false;
+      videoOnFailure = false;
+    }
+
+    // ── AI API key resolution and validation ─────────────────────────────────
+    // Resolve API key: UI-submitted key takes precedence; fall back to the
+    // provider-specific environment variable when the UI key is absent.
+    // The resolved key is never logged, stored in JobEntity, or returned.
+    const envKeyName = PROVIDER_ENV_KEY[provider];
+    // Treat blank UI input the same as absent — trim and convert to undefined first.
+    const uiApiKey = apiKey?.trim() || undefined;
+    const resolvedApiKey = uiApiKey ?? (envKeyName ? process.env[envKeyName] : undefined);
+
+    // Providers that require a key must have one before the job is created.
+    if (envKeyName && !resolvedApiKey) {
+      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      res.status(400).json({ error: 'API key is required for selected AI provider.' });
+      return;
+    }
 
     const jobId = uuidv4();
     // inputDir is derived entirely from server-controlled values (JOBS_BASE_DIR + uuid)
@@ -105,12 +150,12 @@ export class JobsController {
 
     jobStore.set(job);
 
-    // Build AiConfig — apiKey is never logged or returned
+    // Build AiConfig — resolvedApiKey is never logged or returned; it is not stored in JobEntity
     const aiConfig =
       provider !== 'none'
         ? {
             provider,
-            apiKey,
+            apiKey: resolvedApiKey,
             model,
             baseUrl,
             usedFor: {
@@ -173,11 +218,21 @@ export class JobsController {
     const { jobId } = req.params as { jobId: string };
     try {
       const job = jobStore.getOrThrow(jobId);
+
+      if (job.artifactsDownloaded) {
+        res.status(410).json({ error: 'Artifacts already downloaded or expired' });
+        return;
+      }
+
       if (job.status !== 'completed' || !job.artifactsPath) {
         res.status(404).json({ error: 'Artifacts not available' });
         return;
       }
-      zipService.streamZip(job.artifactsPath, job.jobId, res);
+
+      zipService.streamZip(job.artifactsPath, job.jobId, res, () => {
+        job.markDownloaded();
+        jobStore.set(job);
+      });
     } catch {
       res.status(404).json({ error: 'Job not found' });
     }

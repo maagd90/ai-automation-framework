@@ -1,17 +1,30 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { PlayIcon, AlertCircleIcon } from 'lucide-react';
+import axios from 'axios';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
 import ExcelPreviewTable from '../components/ExcelPreviewTable';
 import { createJob, previewExcel } from '../api/jobs';
+import { fetchServerConfig, DEFAULT_SERVER_CONFIG } from '../api/config';
+import type { ServerConfig } from '../api/config';
 import type { AiProvider, ExecutionMode, ExcelPreviewResponse } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+
+  // Server feature flags — fetched once on mount
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(DEFAULT_SERVER_CONFIG);
+  useEffect(() => {
+    fetchServerConfig()
+      .then(setServerConfig)
+      .catch(() => {
+        console.warn('[DashboardPage] Failed to fetch server config — using safe defaults.');
+      });
+  }, []);
 
   // Test input
   const [file, setFile] = useState<File | null>(null);
@@ -57,6 +70,35 @@ export default function DashboardPage() {
     onSuccess: (res) => {
       navigate(`/jobs/${res.jobId}`);
     },
+    onError: (error) => {
+      if (axios.isAxiosError(error)) {
+        const response = error.response?.data as { error?: string } | undefined;
+        if (response?.error) {
+          setValidationError(response.error);
+          return;
+        }
+
+        if (!error.response) {
+          setValidationError(
+            "Cannot reach Agent API. Run the 'Start Agent API' task and retry.",
+          );
+          return;
+        }
+
+        if (error.response.status >= 500) {
+          setValidationError(
+            `Agent API error (${error.response.status}). Check API terminal logs and retry.`,
+          );
+          return;
+        }
+
+        setValidationError(
+          `Request failed (${error.response.status}). Verify API is running and reachable.`,
+        );
+        return;
+      }
+      setValidationError('Failed to create job. Please try again.');
+    },
   });
 
   const isExcel = (f: File | null) => f?.name.toLowerCase().endsWith('.xlsx') ?? false;
@@ -66,6 +108,7 @@ export default function DashboardPage() {
     mutation.mutate({
       file,
       url,
+      framework: 'playwright-ts',
       executionMode,
       headless,
       parallelAgents,
@@ -203,13 +246,14 @@ export default function DashboardPage() {
             onUsedForNamingChange={setUsedForNaming}
             usedForFailureAnalysis={usedForFailureAnalysis}
             onUsedForFailureAnalysisChange={setUsedForFailureAnalysis}
+            features={serverConfig.features}
           />
         </section>
 
-        {(validationError || mutation.isError) && (
+        {validationError && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{validationError || 'Failed to create job. Please try again.'}</span>
+            <span>{validationError}</span>
           </div>
         )}
 

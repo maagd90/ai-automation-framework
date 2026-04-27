@@ -17,6 +17,7 @@ export { StepNlpAiFallback } from './nlp/StepNlpAiFallback';
 
 // AI
 export { AiProviderFactory } from './ai/AiProviderFactory';
+export { AiPromptService } from './ai/AiPromptService';
 export type { IAiProvider, AiCompletionRequest, AiCompletionResponse } from './ai/providers/AiProviders';
 export {
   NoOpProvider,

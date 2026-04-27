@@ -68,6 +68,13 @@ export interface AiUsageSummary {
   failureAnalysisCalls: number;
 }
 
+export interface FailureAnalysis {
+  category: string;
+  summary: string;
+  suggestedFix: string;
+  warning?: string;
+}
+
 // ── Batch execution report ─────────────────────────────────────────────────
 
 export type BatchStatus = 'passed' | 'failed' | 'partial';
@@ -80,6 +87,7 @@ export interface BatchReport {
   durationMs: number;
   parallelAgents: number;
   aiUsage?: AiUsageSummary;
+  failureAnalysis?: FailureAnalysis;
   summary: string;
 }
 

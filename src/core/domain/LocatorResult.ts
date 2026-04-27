@@ -5,6 +5,7 @@ import type { ActionType } from './TestStep.js';
 export interface LocatorResult {
   stepTarget: string;
   action: ActionType;
+  methodName?: string;
   element: Partial<ElementNode>;
   primaryLocator: LocatorCandidate;
   fallbackLocators: LocatorCandidate[];

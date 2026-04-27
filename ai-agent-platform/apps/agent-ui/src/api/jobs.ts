@@ -12,6 +12,7 @@ import { apiClient } from './client';
 export interface CreateJobParams {
   file: File;
   url: string;
+  framework: string;
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
@@ -29,9 +30,12 @@ export interface CreateJobParams {
 }
 
 export async function createJob(params: CreateJobParams): Promise<CreateJobResponse> {
+  await apiClient.get('/health', { timeout: 5000 });
+
   const formData = new FormData();
   formData.append('file', params.file);
-  formData.append('url', params.url);
+  formData.append('url', params.url.trim());
+  formData.append('framework', params.framework);
   formData.append('executionMode', params.executionMode);
   formData.append('headless', String(params.headless));
   formData.append('parallelAgents', String(params.parallelAgents));
@@ -42,7 +46,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobRespo
   formData.append('provider', params.provider);
   if (params.apiKey) formData.append('apiKey', params.apiKey);
   if (params.model) formData.append('model', params.model);
-  if (params.baseUrl) formData.append('baseUrl', params.baseUrl);
+  if (params.baseUrl) formData.append('baseUrl', params.baseUrl.trim());
   formData.append('usedForParsing', String(params.usedForParsing ?? false));
   formData.append('usedForNaming', String(params.usedForNaming ?? false));
   formData.append('usedForFailureAnalysis', String(params.usedForFailureAnalysis ?? false));

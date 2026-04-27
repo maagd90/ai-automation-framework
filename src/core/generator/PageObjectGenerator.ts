@@ -10,10 +10,15 @@ export class PageObjectGenerator {
 
   generate(pageName: string, url: string, locators: LocatorResult[], outputDir: string): string {
     const className = StringUtils.toPascalCase(pageName) + 'Page';
-    const methods = locators.map(l => this.renderMethod(l)).join('\n\n');
-    const outPath = path.join(outputDir, 'pages', `${className}.ts`);
+    const routePath = this.resolveRoutePath(url);
+    const methods = locators
+      .filter((locator) => !this.isPreconditionStep(locator.stepTarget))
+      .map((l) => this.renderMethod(l))
+      .join('\n\n');
+    const outPath = path.join(outputDir, 'src', 'pages', `${className}.ts`);
 
-    const content = `import { type Page, expect } from '@playwright/test';
+    const content = `import { type Page } from '@playwright/test';
+import { waitForPageLoad } from '../utils/wait.util';
 
 export class ${className} {
   constructor(private readonly page: Page) {}
@@ -21,8 +26,8 @@ export class ${className} {
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(url)});
-    await this.page.waitForLoadState('networkidle');
+    await this.page.goto(${this.renderStringLiteral(routePath)});
+    await waitForPageLoad(this.page);
   }
 }
 `;
@@ -34,7 +39,7 @@ ${methods}
   }
 
   private renderMethod(locator: LocatorResult): string {
-    const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
+    const methodName = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
     const locatorExpr = this.renderLocatorExpression(locator.primaryLocator);
 
     switch (locator.action) {
@@ -43,7 +48,7 @@ ${methods}
       case 'click':
         return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
       case 'verifyVisible':
-        return `  async ${methodName}(): Promise<void> {\n    await expect(${locatorExpr}).toBeVisible();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.waitFor({ state: 'visible' });\n  }`;
       case 'verifyText':
         return `  async ${methodName}(expected: string): Promise<void> {\n    await expect(${locatorExpr}).toContainText(expected);\n  }`;
       case 'verifyUrl':
@@ -85,6 +90,29 @@ ${methods}
 
   private renderStringLiteral(value: string): string {
     return JSON.stringify(value);
+  }
+
+  private resolveRoutePath(url: string): string {
+    try {
+      const parsed = new URL(url);
+      const pathname = parsed.pathname?.trim() || '/';
+      return pathname.startsWith('/') ? pathname : `/${pathname}`;
+    } catch {
+      return '/';
+    }
+  }
+
+  private isPreconditionStep(stepText: string): boolean {
+    const normalized = StringUtils.normalize(stepText);
+    return (
+      normalized.startsWith('user is on')
+      || normalized.startsWith('user is on the')
+      || normalized.startsWith('navigate to')
+      || normalized.includes(' navigate to ')
+      || normalized.startsWith('open ')
+      || normalized.includes(' open ')
+      || (normalized.includes('page') && normalized.includes('is on'))
+    );
   }
 
   private parseRoleCandidate(value: string): { role: string; name?: string } | null {
