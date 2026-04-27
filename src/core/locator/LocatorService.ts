@@ -43,6 +43,9 @@ export class LocatorService {
 
       if (!primary) continue;
 
+      const confidenceScore = parseFloat((primary.score / 100).toFixed(2));
+      const confidenceReason = this.buildConfidenceReason(primary.strategy);
+
       results.push({
         stepTarget: step.target,
         action: step.action,
@@ -57,6 +60,8 @@ export class LocatorService {
         },
         primaryLocator: primary,
         fallbackLocators: fallbacks,
+        confidenceScore,
+        confidenceReason,
       });
     }
 
@@ -73,6 +78,8 @@ export class LocatorService {
       const unique = validated.filter(c => c.unique);
       const primary = unique[0] ?? validated[0];
       if (!primary) continue;
+      const confidenceScore = parseFloat((primary.score / 100).toFixed(2));
+      const confidenceReason = this.buildConfidenceReason(primary.strategy);
       results.push({
         stepTarget: el.text || el.dataTestId || el.id || el.tagName,
         action: 'click',
@@ -84,8 +91,25 @@ export class LocatorService {
         },
         primaryLocator: primary,
         fallbackLocators: unique.slice(1).slice(0, 2),
+        confidenceScore,
+        confidenceReason,
       });
     }
     return results;
+  }
+
+  private buildConfidenceReason(strategy: string): string {
+    switch (strategy) {
+      case 'getByTestId': return 'data-testid attribute matched — highly stable';
+      case 'getByRole': return 'Accessible role and name matched';
+      case 'getByLabel': return 'Associated label matched';
+      case 'getByPlaceholder': return 'Placeholder text matched';
+      case 'cssId': return 'Unique ID attribute matched';
+      case 'cssName': return 'Name attribute matched';
+      case 'getByText': return 'Visible text matched — may be fragile if text changes';
+      case 'css': return 'CSS selector matched — may be positional';
+      case 'xpath': return 'XPath matched — consider using a more stable locator';
+      default: return 'Locator matched via fallback strategy';
+    }
   }
 }

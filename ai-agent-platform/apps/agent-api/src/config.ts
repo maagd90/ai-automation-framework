@@ -7,6 +7,6 @@ export const AGENT_CORE_PATH = path.resolve(
 
 export const JOBS_BASE_DIR = process.env.JOBS_DIR ?? '/tmp/jobs';
 
-export const ALLOWED_FILE_TYPES = ['.txt', '.json', '.feature'];
+export const ALLOWED_FILE_TYPES = ['.txt', '.json', '.feature', '.xlsx'];
 
 export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB

@@ -50,6 +50,11 @@ export class StepIntentAnalyzer {
       return { action: 'navigate', target: navigateMatch[1].trim() };
     }
 
+    const redirectMatch = text.match(/^(?:should\s+be\s+redirected?\s+to|is\s+redirected?\s+to|url\s+should\s+be)\s+(.+)$/i);
+    if (redirectMatch) {
+      return { action: 'verifyUrl', target: redirectMatch[1].trim() };
+    }
+
     return { action: 'click', target: text };
   }
 }

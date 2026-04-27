@@ -45,7 +45,9 @@ ${methods}
       case 'verifyVisible':
         return `  async ${methodName}(): Promise<void> {\n    await expect(${locatorExpr}).toBeVisible();\n  }`;
       case 'verifyText':
-        return `  async ${methodName}(expected: string): Promise<void> {\n    await expect(${locatorExpr}).toHaveText(expected);\n  }`;
+        return `  async ${methodName}(expected: string): Promise<void> {\n    await expect(${locatorExpr}).toContainText(expected);\n  }`;
+      case 'verifyUrl':
+        return `  async ${methodName}(expectedUrl: string | RegExp): Promise<void> {\n    await expect(this.page).toHaveURL(expectedUrl);\n  }`;
       case 'select':
         return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.selectOption(value);\n  }`;
       case 'check':

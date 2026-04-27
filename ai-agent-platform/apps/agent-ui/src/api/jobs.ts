@@ -5,6 +5,7 @@ import type {
   JobReportResponse,
   AiProvider,
   ExecutionMode,
+  ExcelPreviewResponse,
 } from '@ai-agent/shared-types';
 import { apiClient } from './client';
 
@@ -69,4 +70,13 @@ export async function getJobReport(jobId: string): Promise<JobReportResponse> {
 
 export function getDownloadUrl(jobId: string): string {
   return `/api/jobs/${jobId}/download`;
+}
+
+export async function previewExcel(file: File): Promise<ExcelPreviewResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await apiClient.post<ExcelPreviewResponse>('/preview/excel', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
 }

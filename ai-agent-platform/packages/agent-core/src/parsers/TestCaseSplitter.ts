@@ -16,6 +16,7 @@ interface RootCliTestCase {
     action: string;
     target: string;
     value?: string;
+    expected?: string;
   }>;
   expectedResults: string[];
 }
@@ -46,6 +47,7 @@ export class TestCaseSplitter {
         action: step.action,
         target: step.target ?? '',
         ...(step.value !== undefined ? { value: step.value } : {}),
+        ...(step.expected !== undefined ? { expected: step.expected } : {}),
       })),
       expectedResults: testCase.expectedResults ?? [],
     };

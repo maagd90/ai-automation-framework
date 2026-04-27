@@ -6,8 +6,9 @@ import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
-import { createJob } from '../api/jobs';
-import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
+import ExcelPreviewTable from '../components/ExcelPreviewTable';
+import { createJob, previewExcel } from '../api/jobs';
+import type { AiProvider, ExecutionMode, ExcelPreviewResponse } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -36,12 +37,51 @@ export default function DashboardPage() {
 
   const [validationError, setValidationError] = useState('');
 
+  // Excel preview state
+  const [excelPreview, setExcelPreview] = useState<ExcelPreviewResponse | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const previewMutation = useMutation({
+    mutationFn: previewExcel,
+    onSuccess: (data) => {
+      setExcelPreview(data);
+      setShowPreview(true);
+    },
+    onError: () => {
+      setValidationError('Failed to preview Excel file. Please check the file format.');
+    },
+  });
+
   const mutation = useMutation({
     mutationFn: createJob,
     onSuccess: (res) => {
       navigate(`/jobs/${res.jobId}`);
     },
   });
+
+  const isExcel = (f: File | null) => f?.name.toLowerCase().endsWith('.xlsx') ?? false;
+
+  const submitJob = () => {
+    if (!file || !url) return;
+    mutation.mutate({
+      file,
+      url,
+      executionMode,
+      headless,
+      parallelAgents,
+      retryCount,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
+      provider,
+      apiKey: apiKey || undefined,
+      model: model || undefined,
+      baseUrl: baseUrl || undefined,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
+    });
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -62,25 +102,42 @@ export default function DashboardPage() {
       return;
     }
 
-    mutation.mutate({
-      file,
-      url,
-      executionMode,
-      headless,
-      parallelAgents,
-      retryCount,
-      screenshotOnFailure,
-      traceOnFailure,
-      videoOnFailure,
-      provider,
-      apiKey: apiKey || undefined,
-      model: model || undefined,
-      baseUrl: baseUrl || undefined,
-      usedForParsing,
-      usedForNaming,
-      usedForFailureAnalysis,
-    });
+    // Excel: show preview before generation
+    if (isExcel(file)) {
+      previewMutation.mutate(file);
+      return;
+    }
+
+    submitJob();
   };
+
+  // Show Excel preview panel
+  if (showPreview && excelPreview) {
+    return (
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Excel Preview</h1>
+          <p className="mt-2 text-gray-500">
+            Review how your Excel test cases were interpreted before generating the framework.
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border shadow-sm p-6">
+          <ExcelPreviewTable
+            preview={excelPreview}
+            onProceed={submitJob}
+            onCancel={() => setShowPreview(false)}
+            isPending={mutation.isPending}
+          />
+          {mutation.isError && (
+            <div className="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Failed to create job. Please try again.</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -158,11 +215,17 @@ export default function DashboardPage() {
 
         <button
           type="submit"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || previewMutation.isPending}
           className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-colors shadow-sm"
         >
           <PlayIcon className="w-5 h-5" />
-          {mutation.isPending ? 'Creating job…' : 'Generate Framework'}
+          {previewMutation.isPending
+            ? 'Parsing Excel…'
+            : mutation.isPending
+            ? 'Creating job…'
+            : isExcel(file)
+            ? 'Preview & Generate'
+            : 'Generate Framework'}
         </button>
       </form>
     </div>

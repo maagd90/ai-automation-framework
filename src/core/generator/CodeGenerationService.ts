@@ -7,6 +7,12 @@ import { JsonArtifactStore } from '../storage/JsonArtifactStore.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { Logger } from '../../utils/Logger.js';
 
+const PAGE_KEYWORDS = [
+  'login', 'signup', 'register', 'checkout', 'cart', 'basket',
+  'dashboard', 'home', 'products', 'product', 'search', 'profile',
+  'account', 'payment', 'confirmation', 'settings', 'admin',
+];
+
 export class CodeGenerationService {
   private readonly pageObjectGen = new PageObjectGenerator();
   private readonly specGen = new SpecGenerator();
@@ -19,7 +25,7 @@ export class CodeGenerationService {
     locators: LocatorResult[],
     outputDir: string,
   ): Promise<GeneratedTestArtifact> {
-    const pageName = StringUtils.toKebabCase(testCase.name.replace(/\s+/g, '-'));
+    const pageName = this.inferPageName(testCase.name, url);
     this.logger.info(`Generating code artifacts for: ${testCase.name}`);
 
     const pageObjectPath = this.pageObjectGen.generate(pageName, url, locators, outputDir);
@@ -42,5 +48,51 @@ export class CodeGenerationService {
     };
 
     return artifact;
+  }
+
+  /**
+   * Infer a clean page name from the test case name and URL path.
+   *
+   * Priority:
+   * 1. Known page keyword found in the URL path.
+   * 2. Known page keyword found in the test case name.
+   * 3. URL path segment (cleaned).
+   * 4. Test case name (kebab-case).
+   */
+  private inferPageName(testCaseName: string, url: string): string {
+    let urlPath = '';
+    try {
+      urlPath = new URL(url).pathname;
+    } catch {
+      // ignore invalid URLs
+    }
+
+    // 1. URL path keyword match
+    for (const kw of PAGE_KEYWORDS) {
+      if (urlPath.toLowerCase().includes(kw)) {
+        return kw;
+      }
+    }
+
+    // 2. Test case name keyword match
+    const nameLower = testCaseName.toLowerCase();
+    for (const kw of PAGE_KEYWORDS) {
+      if (nameLower.includes(kw)) {
+        return kw;
+      }
+    }
+
+    // 3. Last meaningful URL path segment
+    const segments = urlPath.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      const seg = segments[segments.length - 1]
+        .replace(/[^a-zA-Z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      if (seg) return seg;
+    }
+
+    // 4. Cleaned test case name
+    return StringUtils.toKebabCase(testCaseName.replace(/\s+/g, '-'));
   }
 }

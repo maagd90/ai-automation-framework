@@ -6,7 +6,7 @@ interface FileUploadProps {
   accept?: string;
 }
 
-export default function FileUpload({ onFileSelect, accept = '.txt,.json,.feature' }: FileUploadProps) {
+export default function FileUpload({ onFileSelect, accept = '.txt,.json,.feature,.xlsx' }: FileUploadProps) {
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
 
@@ -68,7 +68,7 @@ export default function FileUpload({ onFileSelect, accept = '.txt,.json,.feature
           <p className="text-sm text-gray-600">
             <span className="font-semibold text-brand-600">Click to upload</span> or drag & drop
           </p>
-          <p className="text-xs text-gray-400">Supports: .txt, .json, .feature (max 5 MB)</p>
+          <p className="text-xs text-gray-400">Supports: .txt, .json, .feature, .xlsx (max 5 MB)</p>
           <input
             type="file"
             accept={accept}

@@ -5,6 +5,14 @@ export interface TestStep {
   action: string;
   target?: string;
   value?: string;
+  /** Per-step expected result (Phase 2 addition, optional) */
+  expected?: string;
+  /** Original natural language text before NLP processing */
+  originalText?: string;
+  /** NLP confidence score 0-1 */
+  confidence?: number;
+  /** How the action was determined */
+  nlpSource?: 'explicit-column' | 'nlp-rule' | 'ai-fallback';
 }
 
 export interface TestCase {
@@ -127,3 +135,35 @@ export interface JobLogsResponse {
 
 /** The full batch report is returned directly as the report response. */
 export type JobReportResponse = BatchReport;
+
+// ── Phase 2: Excel Preview ─────────────────────────────────────────────────
+
+export interface ExcelPreviewRow {
+  testCaseId: string;
+  testCaseName: string;
+  stepNo: number;
+  originalStep: string;
+  detectedAction: string;
+  target: string;
+  value: string;
+  expected: string;
+  confidence: number;
+  source: 'explicit-column' | 'nlp-rule' | 'ai-fallback';
+}
+
+export interface ExcelPreviewResponse {
+  filename: string;
+  totalSteps: number;
+  lowConfidenceCount: number;
+  rows: ExcelPreviewRow[];
+}
+
+// ── Phase 2: Locator Confidence ────────────────────────────────────────────
+
+export interface LocatorConfidenceEntry {
+  target: string;
+  selectedLocator: string;
+  confidenceScore: number;
+  reason: string;
+  fallbackLocators: string[];
+}

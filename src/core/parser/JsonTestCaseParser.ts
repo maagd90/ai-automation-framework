@@ -4,7 +4,7 @@ import type { TestCaseParser } from './TestCaseParser.js';
 
 const ActionTypeSchema = z.enum([
   'enter', 'click', 'select', 'check', 'uncheck',
-  'verifyText', 'verifyVisible', 'navigate',
+  'verifyText', 'verifyVisible', 'verifyUrl', 'navigate',
 ]);
 
 const TestStepSchema = z.object({

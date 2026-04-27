@@ -21,6 +21,7 @@ const EXT_TO_LABEL: Readonly<Record<string, string>> = {
   '.json': 'json',
   '.txt': 'txt',
   '.feature': 'feature',
+  '.xlsx': 'xlsx',
 };
 
 export class JobsController {

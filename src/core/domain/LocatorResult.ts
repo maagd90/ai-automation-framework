@@ -8,6 +8,10 @@ export interface LocatorResult {
   element: Partial<ElementNode>;
   primaryLocator: LocatorCandidate;
   fallbackLocators: LocatorCandidate[];
+  /** Normalised confidence 0–1 derived from primaryLocator.score */
+  confidenceScore?: number;
+  /** Human-readable reason for confidence score */
+  confidenceReason?: string;
 }
 
 export interface LocatorArtifact {

@@ -36,9 +36,8 @@ export class BatchJobManager {
 
       // ── Parse ─────────────────────────────────────────────────────────────
       log('Parsing test case file…');
-      const content = fs.readFileSync(job.inputFile, 'utf8');
       const parser = new TestCaseParserFactory();
-      const batch = parser.parse(job.inputFile, content);
+      const batch = await parser.parseAsync(job.inputFile);
 
       // ── Validate ──────────────────────────────────────────────────────────
       const validator = new TestCaseBatchValidator();

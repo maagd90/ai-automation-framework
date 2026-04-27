@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { jobsRouter } from './routes/jobs.router';
+import { previewRouter } from './routes/preview.router';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -33,6 +34,7 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/preview', previewRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
