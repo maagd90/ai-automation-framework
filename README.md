@@ -161,6 +161,55 @@ The UI container uses nginx to proxy all `/api/…` browser requests to the API 
 
 ---
 
+## 🚀 Quick Deployment
+
+The `scripts/deploy.sh` script handles the full deployment in one command — no manual steps required after running it.
+
+**Prerequisites:**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop) (or Docker Engine on Linux) — must be running
+- [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) — for the public HTTPS tunnel
+  - macOS: `brew install cloudflared`
+  - Linux: see [pkg.cloudflare.com](https://pkg.cloudflare.com/index.html)
+
+**Run:**
+
+```bash
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
+```
+
+**What the script does:**
+
+1. Verifies Docker and cloudflared are installed and Docker is running
+2. Stops any existing containers (`docker compose down`)
+3. Prunes unused Docker images (volumes are preserved)
+4. Builds and starts the API and UI containers (`docker compose up --build -d`)
+5. Waits for services to initialise and checks the API health endpoint
+6. Starts a Cloudflare Quick Tunnel — a public HTTPS URL is printed automatically
+
+**Access after deployment:**
+
+```
+----------------------------------------
+Local Access:
+  UI  → http://localhost:5173
+  API → http://localhost:3001
+
+Public Access:
+  (Cloudflare URL will appear in the terminal)
+----------------------------------------
+```
+
+Keep the terminal open to maintain the Cloudflare tunnel. To stop the tunnel, press `Ctrl+C`.
+
+**Stop all containers:**
+
+```bash
+./scripts/stop.sh
+```
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Description |
