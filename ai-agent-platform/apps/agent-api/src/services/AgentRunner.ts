@@ -5,7 +5,27 @@ import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../config';
 import { JobEntity } from '../domain/Job';
 import { jobStore } from './JobStore';
 
+/**
+ * Runs a single-file (non-batch) agent job by spawning the agent core CLI `generate` command.
+ *
+ * Used for simple single-test-case jobs that do not require batch splitting or parallel agents.
+ * Streams stdout and stderr into the job log and writes a report.json to the job directory.
+ *
+ * @deprecated For multi-test-case jobs, use BatchJobManager which provides splitting,
+ *   parallel execution via AgentPoolManager, and project merging.
+ */
 export class AgentRunner {
+  /**
+   * Executes the agent core generate command for the given job.
+   *
+   * Creates the output directory, sets job status to 'running', spawns the child process,
+   * and streams all output to the job log. On completion, sets job status to 'completed'
+   * or 'failed' and writes a report.json file.
+   *
+   * @param job - The job entity containing input file path, target URL, and headless setting.
+   * @returns Resolves when the child process exits (success or failure).
+   * @throws If the child process fails to spawn.
+   */
   async run(job: JobEntity): Promise<void> {
     const outputDir = path.join(JOBS_BASE_DIR, job.jobId, 'generated');
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');

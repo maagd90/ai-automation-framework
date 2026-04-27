@@ -6,6 +6,7 @@ export type ActionType =
   | 'uncheck'
   | 'verifyText'
   | 'verifyVisible'
+  | 'verifyUrl'
   | 'navigate';
 
 export interface TestStep {

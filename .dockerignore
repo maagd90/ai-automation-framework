@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+ai-agent-platform/node_modules/
+
+# Build output (rebuilt inside Docker)
+dist/
+ai-agent-platform/apps/agent-api/dist/
+ai-agent-platform/apps/agent-ui/dist/
+ai-agent-platform/packages/*/dist/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Runtime-generated output
+generated/
+/tmp/jobs/
+
+# Job storage (runtime-generated; mount a volume instead)
+jobs/
+storage/
+tmp/
+
+# Logs
+*.log
+logs/
+
+# Test coverage and reports
+coverage/
+playwright-report/
+test-results/
+
+# Secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# Editor / OS
+.vscode/
+.idea/
+*.DS_Store

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const ExecutionConfigSchema = z.object({
-  framework: z.string().min(1),
+  framework: z.string().min(1).default('playwright-ts'),
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),
@@ -37,7 +37,7 @@ export const AiConfigSchema = z.object({
   provider: z.enum(['openai', 'gemini', 'azure', 'local', 'none']).default('none'),
   apiKey: z.string().optional(),
   model: z.string().optional(),
-  baseUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
+  baseUrl: z.string().trim().url().optional().or(z.literal('')).transform((v) => v || undefined),
   usedForParsing: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
@@ -54,7 +54,7 @@ export const AiConfigSchema = z.object({
 
 export const CreateJobSchema = z
   .object({
-    url: z.string().url(),
+    url: z.string().trim().url(),
   })
   .merge(ExecutionConfigSchema)
   .merge(AiConfigSchema);

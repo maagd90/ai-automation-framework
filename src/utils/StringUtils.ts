@@ -40,6 +40,15 @@ export class StringUtils {
     return (actionMap[action] ?? action) + cleanTarget;
   }
 
+  static isPoorMethodName(methodName: string): boolean {
+    return (
+      !methodName
+      || methodName.length < 6
+      || /^(click|enter|select|check|uncheck|expect|navigateTo)$/i.test(methodName)
+      || /(button|field|input|link)$/i.test(methodName)
+    );
+  }
+
   static isDynamicId(id: string): boolean {
     return /^\d+$/.test(id) || /[0-9a-f]{8}-[0-9a-f]{4}/.test(id);
   }

@@ -1,16 +1,30 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { PlayIcon, AlertCircleIcon } from 'lucide-react';
+import axios from 'axios';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
-import { createJob } from '../api/jobs';
-import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
+import ExcelPreviewTable from '../components/ExcelPreviewTable';
+import { createJob, previewExcel } from '../api/jobs';
+import { fetchServerConfig, DEFAULT_SERVER_CONFIG } from '../api/config';
+import type { ServerConfig } from '../api/config';
+import type { AiProvider, ExecutionMode, ExcelPreviewResponse } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+
+  // Server feature flags — fetched once on mount
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(DEFAULT_SERVER_CONFIG);
+  useEffect(() => {
+    fetchServerConfig()
+      .then(setServerConfig)
+      .catch(() => {
+        console.warn('[DashboardPage] Failed to fetch server config — using safe defaults.');
+      });
+  }, []);
 
   // Test input
   const [file, setFile] = useState<File | null>(null);
@@ -36,12 +50,81 @@ export default function DashboardPage() {
 
   const [validationError, setValidationError] = useState('');
 
+  // Excel preview state
+  const [excelPreview, setExcelPreview] = useState<ExcelPreviewResponse | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const previewMutation = useMutation({
+    mutationFn: previewExcel,
+    onSuccess: (data) => {
+      setExcelPreview(data);
+      setShowPreview(true);
+    },
+    onError: () => {
+      setValidationError('Failed to preview Excel file. Please check the file format.');
+    },
+  });
+
   const mutation = useMutation({
     mutationFn: createJob,
     onSuccess: (res) => {
       navigate(`/jobs/${res.jobId}`);
     },
+    onError: (error) => {
+      if (axios.isAxiosError(error)) {
+        const response = error.response?.data as { error?: string } | undefined;
+        if (response?.error) {
+          setValidationError(response.error);
+          return;
+        }
+
+        if (!error.response) {
+          setValidationError(
+            "Cannot reach Agent API. Run the 'Start Agent API' task and retry.",
+          );
+          return;
+        }
+
+        if (error.response.status >= 500) {
+          setValidationError(
+            `Agent API error (${error.response.status}). Check API terminal logs and retry.`,
+          );
+          return;
+        }
+
+        setValidationError(
+          `Request failed (${error.response.status}). Verify API is running and reachable.`,
+        );
+        return;
+      }
+      setValidationError('Failed to create job. Please try again.');
+    },
   });
+
+  const isExcel = (f: File | null) => f?.name.toLowerCase().endsWith('.xlsx') ?? false;
+
+  const submitJob = () => {
+    if (!file || !url) return;
+    mutation.mutate({
+      file,
+      url,
+      framework: 'playwright-ts',
+      executionMode,
+      headless,
+      parallelAgents,
+      retryCount,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
+      provider,
+      apiKey: apiKey || undefined,
+      model: model || undefined,
+      baseUrl: baseUrl || undefined,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
+    });
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -62,25 +145,42 @@ export default function DashboardPage() {
       return;
     }
 
-    mutation.mutate({
-      file,
-      url,
-      executionMode,
-      headless,
-      parallelAgents,
-      retryCount,
-      screenshotOnFailure,
-      traceOnFailure,
-      videoOnFailure,
-      provider,
-      apiKey: apiKey || undefined,
-      model: model || undefined,
-      baseUrl: baseUrl || undefined,
-      usedForParsing,
-      usedForNaming,
-      usedForFailureAnalysis,
-    });
+    // Excel: show preview before generation
+    if (isExcel(file)) {
+      previewMutation.mutate(file);
+      return;
+    }
+
+    submitJob();
   };
+
+  // Show Excel preview panel
+  if (showPreview && excelPreview) {
+    return (
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Excel Preview</h1>
+          <p className="mt-2 text-gray-500">
+            Review how your Excel test cases were interpreted before generating the framework.
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border shadow-sm p-6">
+          <ExcelPreviewTable
+            preview={excelPreview}
+            onProceed={submitJob}
+            onCancel={() => setShowPreview(false)}
+            isPending={mutation.isPending}
+          />
+          {mutation.isError && (
+            <div className="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Failed to create job. Please try again.</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -146,23 +246,30 @@ export default function DashboardPage() {
             onUsedForNamingChange={setUsedForNaming}
             usedForFailureAnalysis={usedForFailureAnalysis}
             onUsedForFailureAnalysisChange={setUsedForFailureAnalysis}
+            features={serverConfig.features}
           />
         </section>
 
-        {(validationError || mutation.isError) && (
+        {validationError && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{validationError || 'Failed to create job. Please try again.'}</span>
+            <span>{validationError}</span>
           </div>
         )}
 
         <button
           type="submit"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || previewMutation.isPending}
           className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-colors shadow-sm"
         >
           <PlayIcon className="w-5 h-5" />
-          {mutation.isPending ? 'Creating job…' : 'Generate Framework'}
+          {previewMutation.isPending
+            ? 'Parsing Excel…'
+            : mutation.isPending
+            ? 'Creating job…'
+            : isExcel(file)
+            ? 'Preview & Generate'
+            : 'Generate Framework'}
         </button>
       </form>
     </div>

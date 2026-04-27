@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # ── API (Playwright + agent-core CLI) ─────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: ai-agent-platform/apps/agent-api/Dockerfile
+    image: ai-agent-api:local
+    container_name: agent-api
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: '3001'
+      # Demo mode — enables conservative resource limits suitable for local machines
+      DEMO_MODE: 'true'
+      # Playwright — use pre-installed browsers from the Playwright base image
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Skip per-job npm install; use the platform runtime instead
+      INSTALL_GENERATED_PROJECT_DEPS: 'false'
+      # Concurrency — conservative defaults for low-memory demo environments
+      MAX_GLOBAL_AGENTS: '1'
+      MAX_PARALLEL_AGENTS_PER_JOB: '1'
+      MAX_TEST_CASES_PER_JOB: '5'
+      # Feature flags — enable AI providers; disable heavy optional features
+      ENABLE_AI_PROVIDERS: 'true'
+      ENABLE_LOCAL_LLM: 'false'
+      ENABLE_TRACE_VIDEO: 'false'
+      # CORS — allow the UI container (accessed from the host browser)
+      ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
+      JOBS_DIR: /tmp/jobs
+      JOB_RETENTION_HOURS: '24'
+    env_file:
+      # Optional: create a .env file from .env.example to inject GEMINI_API_KEY etc.
+      # The file is .gitignored; never commit actual secrets.
+      - path: .env
+        required: false
+    volumes:
+      # Persist job artifacts across container restarts
+      - ai-agent-jobs:/tmp/jobs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - /app/scripts/docker-healthcheck.js
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── UI (React + nginx) ────────────────────────────────────────────────────────
+  # nginx serves the built React SPA and proxies /api requests to the API
+  # container, so the browser's relative /api calls are forwarded correctly
+  # without any host-side configuration.
+  ui:
+    build:
+      context: .
+      dockerfile: ai-agent-platform/apps/agent-ui/Dockerfile
+    image: ai-agent-ui:local
+    container_name: agent-ui
+    ports:
+      - '5173:5173'
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  ai-agent-jobs:
+
