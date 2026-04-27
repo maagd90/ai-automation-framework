@@ -88,13 +88,16 @@ export class JobsController {
     });
 
     // ── Validate upload path is within OS temp dir (multer-generated, not user-chosen) ─
-    uploadedPath = path.resolve(file.path);
-    const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
+    const rawUploadPath = path.resolve(file.path);
+    const isInTemp = rawUploadPath.startsWith(TEMP_DIR + path.sep) || rawUploadPath === TEMP_DIR;
     if (!isInTemp) {
-      logger.error('Upload path outside temp dir', { requestId, uploadedPath });
+      logger.error('Upload path outside temp dir', { requestId });
       res.status(400).json({ error: 'Invalid upload path' });
       return;
     }
+    // Only assign to the outer-scope variable after confirming the path is within
+    // the OS temp dir — the catch block uses this to clean up on failure.
+    uploadedPath = rawUploadPath;
 
     logger.debug('File upload received', {
       requestId,
@@ -215,7 +218,12 @@ export class JobsController {
           : 1;
         if (count > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
           // Clean up the just-created job input directory
-          try { fs.rmSync(inputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+          try { fs.rmSync(inputDir, { recursive: true, force: true }); } catch (cleanErr) {
+            logger.warn('Failed to clean up input dir after limit rejection', {
+              requestId,
+              error: cleanErr instanceof Error ? cleanErr.message : String(cleanErr),
+            });
+          }
           logger.warn('Test case count exceeds limit', {
             requestId,
             count,
@@ -290,7 +298,12 @@ export class JobsController {
 
       // Clean up the multer temp file if it was not yet moved successfully.
       if (uploadedPath && fs.existsSync(uploadedPath)) {
-        try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+        try { fs.unlinkSync(uploadedPath); } catch (cleanErr) {
+          logger.warn('Failed to clean up temp upload file', {
+            requestId,
+            error: cleanErr instanceof Error ? cleanErr.message : String(cleanErr),
+          });
+        }
       }
 
       if (!res.headersSent) {
