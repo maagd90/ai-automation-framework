@@ -24,7 +24,9 @@ export class RuntimeResourceService {
     try {
       const raw = fs.readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf8').trim();
       const bytes = Number(raw);
-      // Ignore the cgroup v1 sentinel value used when no limit is set
+      // cgroup v1 uses a very large sentinel value (~9.2 × 10^18 bytes, i.e. "no limit").
+      // Any real limit is well below half of Number.MAX_SAFE_INTEGER (~4.5 × 10^15), so
+      // we use that threshold to skip the sentinel and avoid reporting a misleading number.
       if (bytes > 0 && bytes < Number.MAX_SAFE_INTEGER / 2) {
         return Math.round(bytes / (1024 * 1024));
       }

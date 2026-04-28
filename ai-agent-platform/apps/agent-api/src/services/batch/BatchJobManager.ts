@@ -110,7 +110,7 @@ export class BatchJobManager {
         throw new Error(
           `This job contains ${batch.testCases.length} test case(s), which exceeds the ` +
           `per-job limit of ${effectiveLimit}. ` +
-          `Split the file into smaller batches or increase MAX_TEST_CASES_PER_JOB.`,
+          `Increase the job limit up to ${runtimeConfig.MAX_TEST_CASES_HARD_LIMIT} or upload a smaller file.`,
         );
       }
 
