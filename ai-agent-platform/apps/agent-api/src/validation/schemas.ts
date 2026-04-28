@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { runtimeConfig } from '../config/runtime.config';
 
 export const ExecutionConfigSchema = z.object({
   framework: z.string().min(1).default('playwright-ts'),
@@ -61,7 +62,7 @@ export const CreateJobSchema = z
     maxTestCasesForJob: z
       .union([z.number(), z.string()])
       .transform((v) => Number(v))
-      .pipe(z.number().int().min(1).max(100))
+      .pipe(z.number().int().min(1).max(runtimeConfig.MAX_TEST_CASES_HARD_LIMIT))
       .optional(),
   })
   .merge(ExecutionConfigSchema)
