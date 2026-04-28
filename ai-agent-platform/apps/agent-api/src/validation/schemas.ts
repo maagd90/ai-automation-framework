@@ -55,6 +55,11 @@ export const AiConfigSchema = z.object({
 export const CreateJobSchema = z
   .object({
     url: z.string().trim().url(),
+    maxTestCasesForJob: z
+      .union([z.number(), z.string()])
+      .transform((v) => Number(v))
+      .pipe(z.number().int().min(1).max(100))
+      .optional(),
   })
   .merge(ExecutionConfigSchema)
   .merge(AiConfigSchema);

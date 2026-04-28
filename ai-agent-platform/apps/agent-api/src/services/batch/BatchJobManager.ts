@@ -8,6 +8,7 @@ import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
 import { playwrightReady } from '../PlaywrightReadinessCheck';
+import { runtimeResourceService } from '../RuntimeResourceService';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ProjectMerger } from './ProjectMerger';
 import { BatchReportService } from './BatchReportService';
@@ -40,8 +41,9 @@ export class BatchJobManager {
    *
    * @param job - The job entity containing input file path, target URL, and execution settings.
    * @param aiConfig - Optional AI provider configuration for parsing assistance and failure analysis.
+   * @param opts - Optional overrides (e.g. effectiveMaxTestCases from the HTTP request).
    */
-  async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
+  async run(job: JobEntity, aiConfig?: AiConfig, opts?: { effectiveMaxTestCases?: number }): Promise<void> {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
     const startedAt = Date.now();
 
@@ -96,16 +98,18 @@ export class BatchJobManager {
         },
       });
 
-      // ── Demo/cost guard: enforce per-job test-case cap ────────────────────
-      if (batch.testCases.length > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
+      // ── Demo/cost guard: enforce effective per-job test-case cap ─────────
+      const effectiveLimit = opts?.effectiveMaxTestCases ?? runtimeConfig.MAX_TEST_CASES_PER_JOB;
+      if (batch.testCases.length > effectiveLimit) {
         logger.warn('Test case limit exceeded', {
           jobId: job.jobId,
           received: batch.testCases.length,
-          allowed: runtimeConfig.MAX_TEST_CASES_PER_JOB,
+          allowed: effectiveLimit,
+          hardLimit: runtimeConfig.MAX_TEST_CASES_HARD_LIMIT,
         });
         throw new Error(
           `This job contains ${batch.testCases.length} test case(s), which exceeds the ` +
-          `per-job limit of ${runtimeConfig.MAX_TEST_CASES_PER_JOB}. ` +
+          `per-job limit of ${effectiveLimit}. ` +
           `Split the file into smaller batches or increase MAX_TEST_CASES_PER_JOB.`,
         );
       }
@@ -113,14 +117,6 @@ export class BatchJobManager {
       job.totalCases = batch.testCases.length;
       job.processedCases = 0;
       jobStore.set(job);
-
-      // ── Playwright browser pre-flight ─────────────────────────────────────
-      if (!playwrightReady()) {
-        throw new Error(
-          'Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS. Chromium browser is not available on this server. ' +
-          'Run: npx playwright install --with-deps chromium',
-        );
-      }
 
       // ── Split ─────────────────────────────────────────────────────────────
       const splitsDir = path.join(JOBS_BASE_DIR, job.jobId, 'splits');
@@ -130,18 +126,49 @@ export class BatchJobManager {
       logger.info('Batch split into child jobs', { jobId: job.jobId, childCount: splits.length });
 
       // ── Execute generation in parallel ────────────────────────────────────
-      const effectiveParallelAgents = Math.min(
-        job.parallelAgents,
-        runtimeConfig.MAX_PARALLEL_AGENTS_PER_JOB,
+      const { effective: effectiveParallelAgents, reason: agentReducedReason } =
+        runtimeResourceService.effectiveParallelAgents(job.parallelAgents);
+
+      if (agentReducedReason) {
+        log(agentReducedReason);
+        logger.warn(agentReducedReason, { jobId: job.jobId });
+      }
+
+      // Build even distribution of test cases across agents for logging
+      const totalCases = batch.testCases.length;
+      const agentCount = Math.min(effectiveParallelAgents, splits.length);
+      const basePerAgent = Math.floor(totalCases / agentCount);
+      const remainder = totalCases % agentCount;
+      const distribution = Array.from({ length: agentCount }, (_, i) =>
+        basePerAgent + (i < remainder ? 1 : 0),
       );
+
       log(`Requested parallel agents: ${job.parallelAgents}`);
       log(`Effective parallel agents (capped): ${effectiveParallelAgents}`);
+      log(`Test case distribution: [${distribution.join(', ')}]`);
       log(`Generating with ${effectiveParallelAgents} parallel agent(s)…`);
       logger.info('Starting batch generation', {
         jobId: job.jobId,
+        totalTestCases: totalCases,
         requestedParallelAgents: job.parallelAgents,
         effectiveParallelAgents,
+        distribution,
       });
+
+      // ── Playwright browser pre-flight (only needed for generate-and-execute) ─
+      if (job.executionMode === 'generate-and-execute' && !playwrightReady()) {
+        const isDocker = process.env.PLAYWRIGHT_BROWSERS_PATH === '/ms-playwright'
+          || process.env.IN_DOCKER === 'true'
+          || fs.existsSync('/.dockerenv');
+        const fixMsg = isDocker
+          ? 'When running with Docker, rebuild the API image using the official Playwright image.'
+          : 'Run: npx playwright install --with-deps chromium';
+        throw new Error(
+          `Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS. ` +
+          `Chromium browser is not available on this server. ${fixMsg}`,
+        );
+      }
+
       const childResults = await this.pool.runAll(job, splits, effectiveParallelAgents, aiConfig);
 
       const failedChildren = childResults.filter((r) => r.exitCode !== 0);

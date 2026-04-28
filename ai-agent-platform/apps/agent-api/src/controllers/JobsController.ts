@@ -142,9 +142,16 @@ export class JobsController {
       usedForParsing,
       usedForNaming,
       usedForFailureAnalysis,
+      maxTestCasesForJob,
     } = parsed.data;
 
     let { traceOnFailure, videoOnFailure } = parsed.data;
+
+    // ── Compute effective test case limit ────────────────────────────────────
+    const effectiveMaxTestCases = Math.min(
+      maxTestCasesForJob ?? runtimeConfig.MAX_TEST_CASES_PER_JOB,
+      runtimeConfig.MAX_TEST_CASES_HARD_LIMIT,
+    );
 
     // ── Feature flag enforcement ─────────────────────────────────────────────
     // If AI providers are disabled server-side, ignore any requested provider.
@@ -181,6 +188,8 @@ export class JobsController {
       url,
       fileType: typeLabel,
       fileSize: file.size,
+      requestedMaxTestCases: maxTestCasesForJob,
+      effectiveMaxTestCases,
     });
 
     const jobId = uuidv4();
@@ -207,7 +216,7 @@ export class JobsController {
     logger.info('Uploaded file moved successfully', { requestId, jobId, targetPath: inputFilePath });
 
     // ── Early JSON test-case count validation ────────────────────────────────
-    // Enforces MAX_TEST_CASES_PER_JOB before creating the job entity so the
+    // Enforces effectiveMaxTestCases before creating the job entity so the
     // caller receives an HTTP 400 (not a 500 from the async runner).
     if (ext === '.json') {
       try {
@@ -216,7 +225,7 @@ export class JobsController {
         const count = Array.isArray(fileJson['testCases'])
           ? (fileJson['testCases'] as unknown[]).length
           : 1;
-        if (count > runtimeConfig.MAX_TEST_CASES_PER_JOB) {
+        if (count > effectiveMaxTestCases) {
           // Clean up the just-created job input directory
           try { fs.rmSync(inputDir, { recursive: true, force: true }); } catch (cleanErr) {
             logger.warn('Failed to clean up input dir after limit rejection', {
@@ -227,13 +236,13 @@ export class JobsController {
           logger.warn('Test case count exceeds limit', {
             requestId,
             count,
-            limit: runtimeConfig.MAX_TEST_CASES_PER_JOB,
+            effectiveMaxTestCases,
+            hardLimit: runtimeConfig.MAX_TEST_CASES_HARD_LIMIT,
           });
           res.status(400).json({
             error:
-              `This file contains ${count} test cases. Demo limit is ` +
-              `${runtimeConfig.MAX_TEST_CASES_PER_JOB}. Increase MAX_TEST_CASES_PER_JOB ` +
-              `or upload a smaller file.`,
+              `This file contains ${count} test cases. Your selected limit is ${effectiveMaxTestCases}. ` +
+              `Increase the job limit up to ${runtimeConfig.MAX_TEST_CASES_HARD_LIMIT} or upload a smaller file.`,
           });
           return;
         }
@@ -281,7 +290,7 @@ export class JobsController {
         : undefined;
 
     // Run asynchronously — do not await
-    void batchJobManager.run(job, aiConfig).catch((err: unknown) => {
+    void batchJobManager.run(job, aiConfig, { effectiveMaxTestCases }).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Unhandled runner error', { jobId, error: msg });
       console.error(`[Job ${jobId}] Unhandled runner error: ${msg}`);

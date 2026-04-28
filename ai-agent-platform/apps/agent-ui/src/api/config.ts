@@ -10,6 +10,7 @@ export interface ServerFeatureFlags {
 
 export interface ServerLimits {
   maxTestCasesPerJob: number;
+  maxTestCasesHardLimit: number;
   maxDailyJobsPerIp: number;
 }
 
@@ -28,7 +29,8 @@ export const DEFAULT_SERVER_CONFIG: ServerConfig = {
     adminPanel: false,
   },
   limits: {
-    maxTestCasesPerJob: 10,
+    maxTestCasesPerJob: 5,
+    maxTestCasesHardLimit: 20,
     maxDailyJobsPerIp: 20,
   },
 };

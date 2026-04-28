@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 import type { Request, Response, NextFunction } from 'express';
 import { jobsRouter } from './routes/jobs.router';
@@ -8,38 +7,9 @@ import { configRouter } from './routes/config.router';
 import { runtimeConfig } from './config/runtime.config';
 import { featureFlags } from './config/feature.config';
 import { checkPlaywrightReadiness } from './services/PlaywrightReadinessCheck';
+import { runtimeResourceService } from './services/RuntimeResourceService';
 import { pruneOldJobs } from './services/JobRetentionService';
 import { logger } from './utils/logger';
-
-/** Read the container memory limit from the cgroup v2 or v1 file, if available.
- *
- * Returns the limit in megabytes when running inside a memory-constrained
- * container, or `null` when:
- * - running on a bare-metal host with no cgroup memory limit, or
- * - the cgroup files are not accessible (e.g. inside a VM without cgroup mount).
- *
- * cgroup v1 exposes a very large sentinel value (~9.2 × 10^18) when no limit is
- * set; we explicitly ignore that value to avoid reporting a misleading number.
- */
-function detectContainerMemoryMB(): number | null {
-  // cgroup v2
-  try {
-    const raw = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
-    if (raw !== 'max') return Math.round(Number(raw) / (1024 * 1024));
-  } catch { /* not a cgroup v2 container */ }
-
-  // cgroup v1
-  try {
-    const raw = fs.readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf8').trim();
-    const bytes = Number(raw);
-    // Ignore the sentinel value used when no limit is set (very large number)
-    if (bytes > 0 && bytes < Number.MAX_SAFE_INTEGER / 2) {
-      return Math.round(bytes / (1024 * 1024));
-    }
-  } catch { /* not a cgroup v1 container */ }
-
-  return null;
-}
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -122,24 +92,22 @@ app.listen(PORT, () => {
   console.log(`Agent API running on http://localhost:${PORT}`);
 
   // ── Runtime configuration summary ─────────────────────────────────────────
-  const memLimitMB = detectContainerMemoryMB();
-  const memLine = memLimitMB !== null
-    ? `${memLimitMB} MB (container limit)`
-    : 'unrestricted (no cgroup limit detected)';
+  runtimeResourceService.logEnvironmentSummary();
 
+  const estimatedMB = 256 + runtimeConfig.MAX_GLOBAL_AGENTS * runtimeConfig.AGENT_MEMORY_MB;
   console.log('[Runtime Config]');
   console.log(`  MAX_GLOBAL_AGENTS              = ${runtimeConfig.MAX_GLOBAL_AGENTS}`);
   console.log(`  MAX_PARALLEL_AGENTS_PER_JOB    = ${runtimeConfig.MAX_PARALLEL_AGENTS_PER_JOB}`);
   console.log(`  MAX_TEST_CASES_PER_JOB         = ${runtimeConfig.MAX_TEST_CASES_PER_JOB}`);
+  console.log(`  MAX_TEST_CASES_HARD_LIMIT      = ${runtimeConfig.MAX_TEST_CASES_HARD_LIMIT}`);
   console.log(`  MAX_DAILY_JOBS_PER_IP          = ${runtimeConfig.MAX_DAILY_JOBS_PER_IP}`);
   console.log(`  JOB_RETENTION_HOURS            = ${runtimeConfig.JOB_RETENTION_HOURS}`);
   console.log(`  INSTALL_GENERATED_PROJECT_DEPS = ${runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS}`);
   console.log(`  PLAYWRIGHT_BROWSERS_PATH       = ${runtimeConfig.PLAYWRIGHT_BROWSERS_PATH}`);
-  console.log(`  Detected memory                = ${memLine}`);
-
-  const estimatedMB = 256 + runtimeConfig.MAX_GLOBAL_AGENTS * 500;
+  console.log(`  AUTO_OPTIMIZE_AGENTS           = ${runtimeConfig.AUTO_OPTIMIZE_AGENTS}`);
+  console.log(`  Available memory               = ${runtimeResourceService.availableMemoryMB()} MB`);
   console.log(`  Estimated peak memory usage ≈ ${estimatedMB} MB`);
-  console.log(`    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~500 MB/agent)`);
+  console.log(`    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~${runtimeConfig.AGENT_MEMORY_MB} MB/agent)`);
 
   console.log('[Feature Flags]');
   console.log(`  ENABLE_AI_PROVIDERS      = ${featureFlags.ENABLE_AI_PROVIDERS}`);

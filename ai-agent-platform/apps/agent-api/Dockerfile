@@ -45,10 +45,15 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV MAX_GLOBAL_AGENTS=1
 ENV MAX_PARALLEL_AGENTS_PER_JOB=1
 ENV MAX_TEST_CASES_PER_JOB=5
+ENV MAX_TEST_CASES_HARD_LIMIT=20
 ENV INSTALL_GENERATED_PROJECT_DEPS=false
 ENV JOBS_DIR=/tmp/jobs
 ENV JOB_RETENTION_HOURS=24
 ENV PORT=3001
+
+# ── Build-time verification ────────────────────────────────────────────────────
+RUN node -e "console.log('Node OK')"
+RUN ls -la /ms-playwright || true
 
 EXPOSE 3001
 

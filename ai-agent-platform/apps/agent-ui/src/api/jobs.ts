@@ -26,6 +26,7 @@ export interface CreateJobParams {
   usedForParsing?: boolean;
   usedForNaming?: boolean;
   usedForFailureAnalysis?: boolean;
+  maxTestCasesForJob?: number;
 }
 
 export async function createJob(params: CreateJobParams): Promise<CreateJobResponse> {
@@ -49,6 +50,9 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobRespo
   formData.append('usedForParsing', String(params.usedForParsing ?? false));
   formData.append('usedForNaming', String(params.usedForNaming ?? false));
   formData.append('usedForFailureAnalysis', String(params.usedForFailureAnalysis ?? false));
+  if (params.maxTestCasesForJob !== undefined) {
+    formData.append('maxTestCasesForJob', String(params.maxTestCasesForJob));
+  }
 
   const { data } = await apiClient.post<CreateJobResponse>('/jobs', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

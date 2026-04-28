@@ -23,6 +23,7 @@ router.get('/', (_req, res) => {
     },
     limits: {
       maxTestCasesPerJob: runtimeConfig.MAX_TEST_CASES_PER_JOB,
+      maxTestCasesHardLimit: runtimeConfig.MAX_TEST_CASES_HARD_LIMIT,
       maxDailyJobsPerIp: runtimeConfig.MAX_DAILY_JOBS_PER_IP,
     },
   });
