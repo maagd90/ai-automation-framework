@@ -1,4 +1,4 @@
-import type { Job, JobStatus, BatchReport, ExecutionMode } from '@ai-agent/shared-types';
+import type { Job, JobStatus, BatchReport, ExecutionMode, AllocationMode } from '@ai-agent/shared-types';
 
 export class JobEntity implements Job {
   jobId: string;
@@ -9,6 +9,7 @@ export class JobEntity implements Job {
   url: string;
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
@@ -30,6 +31,7 @@ export class JobEntity implements Job {
     url: string;
     framework: string;
     executionMode?: ExecutionMode;
+    allocationMode?: AllocationMode;
     headless?: boolean;
     parallelAgents?: number;
     retryCount?: number;
@@ -45,6 +47,7 @@ export class JobEntity implements Job {
     this.url = params.url;
     this.framework = params.framework;
     this.executionMode = params.executionMode ?? 'generate-only';
+    this.allocationMode = params.allocationMode ?? 'auto';
     this.headless = params.headless ?? true;
     this.parallelAgents = params.parallelAgents ?? 2;
     this.retryCount = params.retryCount ?? 0;

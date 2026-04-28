@@ -5,6 +5,7 @@ import type {
   JobReportResponse,
   AiProvider,
   ExecutionMode,
+  AllocationMode,
 } from '@ai-agent/shared-types';
 import { apiClient } from './client';
 
@@ -13,6 +14,7 @@ export interface CreateJobParams {
   url: string;
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
@@ -37,6 +39,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobRespo
   formData.append('url', params.url.trim());
   formData.append('framework', params.framework);
   formData.append('executionMode', params.executionMode);
+  formData.append('allocationMode', params.allocationMode);
   formData.append('headless', String(params.headless));
   formData.append('parallelAgents', String(params.parallelAgents));
   formData.append('retryCount', String(params.retryCount));

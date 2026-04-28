@@ -126,30 +126,34 @@ export class BatchJobManager {
       logger.info('Batch split into child jobs', { jobId: job.jobId, childCount: splits.length });
 
       // ── Execute generation in parallel ────────────────────────────────────
-      const { effective: effectiveParallelAgents, reason: agentReducedReason } =
-        runtimeResourceService.effectiveParallelAgents(job.parallelAgents);
+      const totalCases = batch.testCases.length;
+      const allocationMode = job.allocationMode ?? 'manual';
+      const scaling = runtimeResourceService.resolveEffectiveAgents(
+        totalCases,
+        allocationMode,
+        job.parallelAgents,
+      );
+      const effectiveParallelAgents = scaling.effectiveAgents;
+      const { distribution } = scaling;
 
-      if (agentReducedReason) {
-        log(agentReducedReason);
-        logger.warn(agentReducedReason, { jobId: job.jobId });
+      if (scaling.reducedReason) {
+        log(scaling.reducedReason);
+        logger.warn(scaling.reducedReason, { jobId: job.jobId });
       }
 
-      // Build even distribution of test cases across agents for logging
-      const totalCases = batch.testCases.length;
-      const agentCount = Math.min(effectiveParallelAgents, splits.length);
-      const basePerAgent = Math.floor(totalCases / agentCount);
-      const remainder = totalCases % agentCount;
-      const distribution = Array.from({ length: agentCount }, (_, i) =>
-        basePerAgent + (i < remainder ? 1 : 0),
-      );
-
-      log(`Requested parallel agents: ${job.parallelAgents}`);
-      log(`Effective parallel agents (capped): ${effectiveParallelAgents}`);
-      log(`Test case distribution: [${distribution.join(', ')}]`);
+      log(`[AgentScaling] totalTestCases=${totalCases}`);
+      log(`[AgentScaling] allocationMode=${allocationMode}`);
+      log(`[AgentScaling] requestedAgents=${job.parallelAgents}`);
+      log(`[AgentScaling] workloadBasedAgents=${scaling.workloadBasedAgents}`);
+      log(`[AgentScaling] cpuBasedAgents=${scaling.cpuBasedAgents}`);
+      log(`[AgentScaling] memoryBasedAgents=${scaling.memoryBasedAgents}`);
+      log(`[AgentScaling] effectiveAgents=${effectiveParallelAgents}`);
+      log(`[AgentScaling] distribution=${distribution.join(',')}`);
       log(`Generating with ${effectiveParallelAgents} parallel agent(s)…`);
       logger.info('Starting batch generation', {
         jobId: job.jobId,
         totalTestCases: totalCases,
+        allocationMode,
         requestedParallelAgents: job.parallelAgents,
         effectiveParallelAgents,
         distribution,

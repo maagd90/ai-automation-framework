@@ -1,5 +1,8 @@
 import fs from 'fs';
 import os from 'os';
+import type { AllocationMode } from '@ai-agent/shared-types';
+import { calculateRecommendedAgents } from '@ai-agent/agent-core';
+import type { AgentScalingResult } from '@ai-agent/agent-core';
 import { runtimeConfig } from '../config/runtime.config';
 import { logger } from '../utils/logger';
 
@@ -55,18 +58,55 @@ export class RuntimeResourceService {
   }
 
   /**
-   * Compute the effective number of parallel agents for a job request,
-   * applying all configured and resource-based caps.
+   * Compute the effective number of parallel agents using the full autoscaling
+   * algorithm: workload-aware (auto) or user-requested (manual), capped by all
+   * configured and resource-based limits.
    *
-   * Caps applied (smallest wins):
-   *   - requestedAgents (from the HTTP request)
-   *   - MAX_PARALLEL_AGENTS_PER_JOB (env)
-   *   - MAX_PARALLEL_AGENTS_PER_JOB_HARD_LIMIT (env)
-   *   - cpuBasedLimit (os.cpus().length)
-   *   - memoryBasedLimit (when AUTO_OPTIMIZE_AGENTS=true)
+   * Logs all decision points with the [AgentScaling] prefix.
    *
-   * Always returns at least 1.
+   * @param totalTestCases - Number of test cases in this batch.
+   * @param allocationMode - 'auto' (workload-driven) or 'manual' (user-driven).
+   * @param requestedAgents - Agents requested by the user (used in manual mode).
    */
+  resolveEffectiveAgents(
+    totalTestCases: number,
+    allocationMode: AllocationMode,
+    requestedAgents: number,
+  ): AgentScalingResult {
+    const cpuCores = os.cpus().length;
+    const availableMemoryMb = this.availableMemoryMB();
+
+    const result = calculateRecommendedAgents({
+      totalTestCases,
+      requestedAgents,
+      allocationMode,
+      testCasesPerAgentTarget: runtimeConfig.TEST_CASES_PER_AGENT_TARGET,
+      cpuCores,
+      availableMemoryMb,
+      systemReservedMemoryMb: runtimeConfig.SYSTEM_RESERVED_MEMORY_MB,
+      agentMemoryMb: runtimeConfig.AGENT_MEMORY_MB,
+      maxGlobalAgents: runtimeConfig.MAX_GLOBAL_AGENTS,
+      maxParallelAgentsPerJob: runtimeConfig.MAX_PARALLEL_AGENTS_PER_JOB,
+      hardLimit: runtimeConfig.MAX_PARALLEL_AGENTS_PER_JOB_HARD_LIMIT,
+      minAgents: runtimeConfig.MIN_AGENTS,
+    });
+
+    logger.info('[AgentScaling] totalTestCases=' + totalTestCases);
+    logger.info('[AgentScaling] allocationMode=' + allocationMode);
+    logger.info('[AgentScaling] requestedAgents=' + requestedAgents);
+    logger.info('[AgentScaling] workloadBasedAgents=' + result.workloadBasedAgents);
+    logger.info('[AgentScaling] cpuBasedAgents=' + result.cpuBasedAgents);
+    logger.info('[AgentScaling] memoryBasedAgents=' + result.memoryBasedAgents);
+    logger.info('[AgentScaling] effectiveAgents=' + result.effectiveAgents);
+    logger.info('[AgentScaling] distribution=' + result.distribution.join(','));
+    if (result.reducedReason) {
+      logger.warn('[AgentScaling] reduced: ' + result.reducedReason);
+    }
+
+    return result;
+  }
+
+  /** @deprecated Use resolveEffectiveAgents for allocationMode-aware scaling. */
   effectiveParallelAgents(requestedAgents: number): {
     effective: number;
     reason: string | null;

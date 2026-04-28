@@ -1,8 +1,10 @@
-import type { ExecutionMode } from '@ai-agent/shared-types';
+import type { ExecutionMode, AllocationMode } from '@ai-agent/shared-types';
 
 interface ExecutionConfigPanelProps {
   executionMode: ExecutionMode;
   onExecutionModeChange: (v: ExecutionMode) => void;
+  allocationMode: AllocationMode;
+  onAllocationModeChange: (v: AllocationMode) => void;
   headless: boolean;
   onHeadlessChange: (v: boolean) => void;
   parallelAgents: number;
@@ -15,6 +17,7 @@ interface ExecutionConfigPanelProps {
   onTraceOnFailureChange: (v: boolean) => void;
   videoOnFailure: boolean;
   onVideoOnFailureChange: (v: boolean) => void;
+  recommendedAgentsForDemo?: number;
 }
 
 const PARALLEL_OPTIONS = [1, 2, 3, 5, 10];
@@ -23,6 +26,8 @@ const RETRY_OPTIONS = [0, 1, 2];
 export default function ExecutionConfigPanel({
   executionMode,
   onExecutionModeChange,
+  allocationMode,
+  onAllocationModeChange,
   headless,
   onHeadlessChange,
   parallelAgents,
@@ -35,6 +40,7 @@ export default function ExecutionConfigPanel({
   onTraceOnFailureChange,
   videoOnFailure,
   onVideoOnFailureChange,
+  recommendedAgentsForDemo,
 }: ExecutionConfigPanelProps) {
   return (
     <div className="space-y-5">
@@ -64,26 +70,71 @@ export default function ExecutionConfigPanel({
         </div>
       </div>
 
-      {/* Parallel Agents */}
+      {/* Agent Allocation Mode */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Parallel Agents</label>
-        <div className="flex gap-2 flex-wrap">
-          {PARALLEL_OPTIONS.map((n) => (
+        <label className="block text-sm font-medium text-gray-700 mb-2">Agent Allocation Mode</label>
+        <div className="flex gap-2">
+          {(
+            [
+              { value: 'auto', label: 'Auto (recommended)' },
+              { value: 'manual', label: 'Manual' },
+            ] as { value: AllocationMode; label: string }[]
+          ).map(({ value, label }) => (
             <button
-              key={n}
+              key={value}
               type="button"
-              onClick={() => onParallelAgentsChange(n)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                parallelAgents === n
+              onClick={() => onAllocationModeChange(value)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                allocationMode === value
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:border-brand-400'
               }`}
             >
-              {n === 1 ? '1 (sequential)' : n}
+              {label}
             </button>
           ))}
         </div>
+        {allocationMode === 'auto' ? (
+          <div className="mt-2 space-y-1">
+            <p className="text-xs text-gray-500">
+              Auto mode adjusts agents based on test case count and available system resources.
+            </p>
+            {recommendedAgentsForDemo !== undefined && (
+              <p className="text-xs text-blue-600">
+                Recommended: {recommendedAgentsForDemo} agent(s) for demo mode. Agents will be
+                selected automatically after the file is parsed.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-amber-600">
+            Backend may reduce this value for safety based on system resources.
+          </p>
+        )}
       </div>
+
+      {/* Parallel Agents — only shown in manual mode */}
+      {allocationMode === 'manual' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Parallel Agents</label>
+          <div className="flex gap-2 flex-wrap">
+            {PARALLEL_OPTIONS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onParallelAgentsChange(n)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  parallelAgents === n
+                    ? 'bg-brand-600 text-white border-brand-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-brand-400'
+                }`}
+              >
+                {n === 1 ? '1 (sequential)' : n}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Retry Failed Cases */}
       <div>

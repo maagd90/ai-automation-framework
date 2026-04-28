@@ -25,9 +25,12 @@ export interface TestCaseBatch {
 
 export type ExecutionMode = 'generate-only' | 'generate-and-execute';
 
+export type AllocationMode = 'auto' | 'manual';
+
 export interface ExecutionConfig {
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
@@ -96,6 +99,7 @@ export interface Job {
   url: string;
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;

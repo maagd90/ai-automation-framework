@@ -4,7 +4,7 @@ const defaultPlaywrightBrowsersPath = process.env.CODESPACES
 
 export const runtimeConfig = {
   // Concurrency — Phase 1 demo-safe defaults
-  MAX_GLOBAL_AGENTS: Number(process.env.MAX_GLOBAL_AGENTS || 2),
+  MAX_GLOBAL_AGENTS: Number(process.env.MAX_GLOBAL_AGENTS || 1),
   MAX_PARALLEL_AGENTS_PER_JOB: Number(process.env.MAX_PARALLEL_AGENTS_PER_JOB || 1),
   MAX_GLOBAL_AGENTS_HARD_LIMIT: Number(process.env.MAX_GLOBAL_AGENTS_HARD_LIMIT || 4),
   MAX_PARALLEL_AGENTS_PER_JOB_HARD_LIMIT: Number(process.env.MAX_PARALLEL_AGENTS_PER_JOB_HARD_LIMIT || 4),
@@ -20,10 +20,13 @@ export const runtimeConfig = {
   // Age in hours after which completed job artifact directories are pruned
   JOB_RETENTION_HOURS: Number(process.env.JOB_RETENTION_HOURS || 24),
 
-  // Cross-platform resource optimization
+  // Dynamic agent autoscaling
   AUTO_OPTIMIZE_AGENTS: process.env.AUTO_OPTIMIZE_AGENTS !== 'false',
+  MIN_AGENTS: Number(process.env.MIN_AGENTS || 1),
   AGENT_MEMORY_MB: Number(process.env.AGENT_MEMORY_MB || 500),
   SYSTEM_RESERVED_MEMORY_MB: Number(process.env.SYSTEM_RESERVED_MEMORY_MB || 1024),
+  // Roughly one agent per N test cases in auto mode
+  TEST_CASES_PER_AGENT_TARGET: Number(process.env.TEST_CASES_PER_AGENT_TARGET || 5),
 
   INSTALL_GENERATED_PROJECT_DEPS: process.env.INSTALL_GENERATED_PROJECT_DEPS === 'true',
   PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || defaultPlaywrightBrowsersPath,

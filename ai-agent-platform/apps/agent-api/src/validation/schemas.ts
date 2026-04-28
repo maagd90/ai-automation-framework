@@ -5,6 +5,9 @@ export const ExecutionConfigSchema = z.object({
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),
+  allocationMode: z
+    .enum(['auto', 'manual'])
+    .default('auto'),
   headless: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))

@@ -10,7 +10,7 @@ import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
 import { fetchServerConfig, DEFAULT_SERVER_CONFIG } from '../api/config';
 import type { ServerConfig } from '../api/config';
-import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
+import type { AiProvider, ExecutionMode, AllocationMode } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -41,6 +41,7 @@ export default function DashboardPage() {
 
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
+  const [allocationMode, setAllocationMode] = useState<AllocationMode>('auto');
   const [headless, setHeadless] = useState(true);
   const [parallelAgents, setParallelAgents] = useState(2);
   const [retryCount, setRetryCount] = useState(0);
@@ -119,6 +120,7 @@ export default function DashboardPage() {
       url,
       framework: 'playwright-ts',
       executionMode,
+      allocationMode,
       headless,
       parallelAgents,
       retryCount,
@@ -162,7 +164,7 @@ export default function DashboardPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Max test cases for this job
+              Max test cases to process from file
             </label>
             <input
               type="number"
@@ -179,8 +181,9 @@ export default function DashboardPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <p className="mt-1 text-xs text-gray-400">
-              Default: {serverConfig.limits.maxTestCasesPerJob} &nbsp;·&nbsp; Max:{' '}
-              {serverConfig.limits.maxTestCasesHardLimit}
+              Process up to {maxTestCasesForJob} test case(s) from this file. Files with fewer test
+              cases are accepted. Default: {serverConfig.limits.maxTestCasesPerJob} &nbsp;·&nbsp; Hard
+              limit: {serverConfig.limits.maxTestCasesHardLimit}.
             </p>
           </div>
         </section>
@@ -191,6 +194,8 @@ export default function DashboardPage() {
           <ExecutionConfigPanel
             executionMode={executionMode}
             onExecutionModeChange={setExecutionMode}
+            allocationMode={allocationMode}
+            onAllocationModeChange={setAllocationMode}
             headless={headless}
             onHeadlessChange={setHeadless}
             parallelAgents={parallelAgents}
@@ -203,6 +208,7 @@ export default function DashboardPage() {
             onTraceOnFailureChange={setTraceOnFailure}
             videoOnFailure={videoOnFailure}
             onVideoOnFailureChange={setVideoOnFailure}
+            recommendedAgentsForDemo={serverConfig.runtime.recommendedAgentsForDemo}
           />
         </section>
 
