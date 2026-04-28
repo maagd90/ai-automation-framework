@@ -39,7 +39,7 @@ export interface AgentScalingResult {
  * Logic (smallest cap wins):
  *   workloadBasedAgents = ceil(totalTestCases / testCasesPerAgentTarget)
  *   cpuBasedAgents      = max(1, floor(cpuCores / 2))
- *   memoryBasedAgents   = max(1, floor((availableMemoryMb − systemReservedMemoryMb) / agentMemoryMb))
+ *   memoryBasedAgents   = max(1, floor((availableMemoryMb - systemReservedMemoryMb) / agentMemoryMb))
  *
  *   auto mode:   desiredAgents = workloadBasedAgents
  *   manual mode: desiredAgents = requestedAgents

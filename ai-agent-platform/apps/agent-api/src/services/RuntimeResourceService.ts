@@ -91,16 +91,16 @@ export class RuntimeResourceService {
       minAgents: runtimeConfig.MIN_AGENTS,
     });
 
-    logger.info('[AgentScaling] totalTestCases=' + totalTestCases);
-    logger.info('[AgentScaling] allocationMode=' + allocationMode);
-    logger.info('[AgentScaling] requestedAgents=' + requestedAgents);
-    logger.info('[AgentScaling] workloadBasedAgents=' + result.workloadBasedAgents);
-    logger.info('[AgentScaling] cpuBasedAgents=' + result.cpuBasedAgents);
-    logger.info('[AgentScaling] memoryBasedAgents=' + result.memoryBasedAgents);
-    logger.info('[AgentScaling] effectiveAgents=' + result.effectiveAgents);
-    logger.info('[AgentScaling] distribution=' + result.distribution.join(','));
+    logger.info(`[AgentScaling] totalTestCases=${totalTestCases}`);
+    logger.info(`[AgentScaling] allocationMode=${allocationMode}`);
+    logger.info(`[AgentScaling] requestedAgents=${requestedAgents}`);
+    logger.info(`[AgentScaling] workloadBasedAgents=${result.workloadBasedAgents}`);
+    logger.info(`[AgentScaling] cpuBasedAgents=${result.cpuBasedAgents}`);
+    logger.info(`[AgentScaling] memoryBasedAgents=${result.memoryBasedAgents}`);
+    logger.info(`[AgentScaling] effectiveAgents=${result.effectiveAgents}`);
+    logger.info(`[AgentScaling] distribution=${result.distribution.join(',')}`);
     if (result.reducedReason) {
-      logger.warn('[AgentScaling] reduced: ' + result.reducedReason);
+      logger.warn(`[AgentScaling] reduced: ${result.reducedReason}`);
     }
 
     return result;
