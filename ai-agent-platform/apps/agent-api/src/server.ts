@@ -109,6 +109,16 @@ app.listen(PORT, () => {
   console.log(`  Estimated peak memory usage ≈ ${estimatedMB} MB`);
   console.log(`    (baseAPI ~256 MB + MAX_GLOBAL_AGENTS × ~${runtimeConfig.AGENT_MEMORY_MB} MB/agent)`);
 
+  // Log Playwright package version to detect Docker image/package mismatches at a glance
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pwPkg = require('playwright/package.json') as { version: string };
+    console.log(`  Playwright package version     = ${pwPkg.version}`);
+    console.log(`  Docker expected image          = mcr.microsoft.com/playwright:v${pwPkg.version}-jammy`);
+  } catch {
+    console.log('  Playwright package version     = (could not resolve)');
+  }
+
   console.log('[Feature Flags]');
   console.log(`  ENABLE_AI_PROVIDERS      = ${featureFlags.ENABLE_AI_PROVIDERS}`);
   console.log(`  ENABLE_LOCAL_LLM         = ${featureFlags.ENABLE_LOCAL_LLM}`);

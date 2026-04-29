@@ -1,5 +1,5 @@
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.41.0-jammy AS builder
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm ci
 RUN npm run build:types && npm run build:core && npm run build:api
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.41.0-jammy
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
 

@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger';
 
 const CHILD_JOB_TIMEOUT_MS = 20 * 60 * 1000;
 
-/** Patterns that indicate Playwright's Linux system deps are missing. */
+/** Patterns that indicate Playwright's Linux system deps are missing or a version mismatch. */
 const MISSING_DEPS_PATTERNS = [
   /error while loading shared libraries/i,
   /libatk/i,
@@ -19,6 +19,7 @@ const MISSING_DEPS_PATTERNS = [
   /libnss/i,
   /Executable doesn't exist/i,
   /browserType\.launch/i,
+  /Please update docker image/i,
 ];
 
 function isMissingDepsError(text: string): boolean {
@@ -145,10 +146,31 @@ export class ChildJobRunner {
           .forEach((l) => appendLog(`[STDERR] ${l}`));
 
         if (isMissingDepsError(text)) {
+          // PLAYWRIGHT_BROWSERS_PATH is the canonical check (set via env); the others
+          // are fallbacks for containers that don't set it explicitly.
+          const isDocker = process.env.PLAYWRIGHT_BROWSERS_PATH === '/ms-playwright'
+            || process.env.IN_DOCKER === 'true'
+            || fs.existsSync('/.dockerenv');
+          let fixMsg: string;
+          if (isDocker) {
+            // Dynamically read the installed package version so the message stays
+            // accurate after future Playwright upgrades.
+            let pwVersion = 'unknown';
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const pwPkg = require('playwright/package.json') as { version: string };
+              pwVersion = pwPkg.version;
+            } catch { /* ignore */ }
+            fixMsg =
+              'Playwright package and Docker image version mismatch. ' +
+              `Align the Docker base image with the installed Playwright version ` +
+              `(mcr.microsoft.com/playwright:v${pwVersion}-jammy) and rebuild: docker compose build --no-cache.`;
+          } else {
+            fixMsg = 'Run: npx playwright install --with-deps chromium';
+          }
           appendLog(
             '[ERROR] Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS - ' +
-            'Chromium browser dependencies are missing in this environment. ' +
-            'Suggested fix: run "npx playwright install --with-deps chromium" once during environment setup.',
+            `Chromium browser is not available or has a version mismatch. ${fixMsg}`,
           );
         }
       });

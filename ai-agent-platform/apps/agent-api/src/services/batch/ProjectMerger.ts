@@ -196,7 +196,7 @@ export class ProjectMerger {
         'show-report': 'npx playwright show-report',
       },
       devDependencies: {
-        '@playwright/test': '^1.41.0',
+        '@playwright/test': '1.59.1',
         typescript: '^5.3.3',
       },
     };

@@ -95,9 +95,33 @@ See `.env.example` at the repo root for the full reference. Key variables for lo
 
 ---
 
+## Docker Deployment
+
+The Docker image for the API is based on the official Microsoft Playwright image, which bundles Chromium and all required system libraries:
+
+```
+mcr.microsoft.com/playwright:v1.59.1-jammy
+```
+
+**Important:** The Playwright npm package version installed by `npm ci` **must match** the Docker image tag. The repository pins `"playwright": "1.59.1"` in `package.json` to guarantee this alignment. Do not change one without updating the other.
+
+The host machine does **not** need Playwright installed. Chromium is pre-installed inside the container at `/ms-playwright`.
+
+To rebuild and restart the full stack:
+
+```bash
+docker compose down -v
+docker compose build --no-cache
+docker compose up
+```
+
+On startup the API logs the installed Playwright package version and the expected Docker image tag. If they differ, rebuild the image.
+
+---
+
 ## Shared Playwright Runtime
 
-In production and Docker deployments, browsers are installed once and reused by all jobs:
+In local (non-Docker) development, browsers are installed once and reused by all jobs:
 
 ```bash
 PLAYWRIGHT_BROWSERS_PATH=/home/codespace/.cache/ms-playwright \
@@ -120,7 +144,26 @@ Set `INSTALL_GENERATED_PROJECT_DEPS=false` to skip per-job `npm install` and use
 
 ## Troubleshooting
 
-### Playwright browser launch fails (`libatk-1.0.so.0` or similar)
+### Playwright browser launch fails (Docker: "Please update docker image")
+
+This means the installed `playwright` npm package version does not match the Docker base image. Check the startup log for:
+
+```
+Playwright package version     = X.Y.Z
+Docker expected image          = mcr.microsoft.com/playwright:vX.Y.Z-jammy
+```
+
+Fix by aligning the Docker image tag with the installed package version and rebuilding:
+
+```bash
+docker compose down -v
+docker compose build --no-cache
+docker compose up
+```
+
+Do **not** run `npx playwright install` inside the container — use the browser bundled in the official image.
+
+### Playwright browser launch fails (local: `libatk-1.0.so.0` or similar)
 
 Install Playwright system dependencies once during environment setup:
 
@@ -130,7 +173,7 @@ npx playwright install --with-deps chromium
 
 If the API starts without Playwright ready, it logs:
 ```
-[WARN] Playwright readiness check failed. Run: npx playwright install --with-deps chromium
+[WARN] Playwright readiness check failed.
 ```
 
 All browser launch attempts will fail with error category `PLAYWRIGHT_RUNTIME_MISSING_DEPS` in job logs until the dependencies are installed.
