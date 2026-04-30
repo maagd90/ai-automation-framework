@@ -67,6 +67,111 @@ function locatorPriority(strategy: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// Locator JSON file types (for merged locator snapshots)
+// ---------------------------------------------------------------------------
+
+/** A single entry inside a locator JSON snapshot file. */
+export interface LocatorEntry {
+  /** Camel-case field name, e.g. `usernameInput` */
+  name: string;
+  /** Human-readable description of what the locator targets */
+  target?: string;
+  /** Playwright selector expression, e.g. `page.getByPlaceholder('Username')` */
+  selector: string;
+  /** Locator strategy used (e.g. `getByPlaceholder`, `getByRole`, `data-testid`) */
+  strategy: string;
+  /** Confidence score [0, 1] assigned by the generator */
+  confidenceScore: number;
+  /** Alternative locators to fall back to if the primary fails */
+  fallbackLocators?: LocatorEntry[];
+}
+
+/** Root structure of a merged locator JSON file. */
+export interface LocatorFile {
+  feature: string;
+  pageObject?: string;
+  locators: LocatorEntry[];
+}
+
+/**
+ * Strategy priority for locator JSON files.
+ * Higher value = preferred when confidence scores tie.
+ * Ordered per spec: data-testid > getByRole > getByLabel > getByPlaceholder >
+ * getByText > css/xpath/nth.
+ */
+const LOCATOR_JSON_STRATEGY_PRIORITY: Record<string, number> = {
+  'data-testid': 6,
+  getByTestId: 5,
+  getByRole: 4,
+  getByLabel: 3,
+  getByPlaceholder: 2,
+  getByText: 1,
+};
+
+function locatorJsonStrategyPriority(strategy: string): number {
+  return LOCATOR_JSON_STRATEGY_PRIORITY[strategy] ?? 0;
+}
+
+/**
+ * Derives a feature key from a locator JSON file name.
+ *
+ * Strips known suffixes (`.locators.json`, `.json`) then applies the same
+ * PascalCase → kebab-case conversion used elsewhere in this service.
+ *
+ * Examples:
+ *   `login.locators.json`  → `login`
+ *   `LoginPage.json`       → `login`
+ *   `checkout.json`        → `checkout`
+ */
+function featureKeyFromLocatorFileName(filename: string): string {
+  const base = filename.replace(/\.locators\.json$/, '').replace(/\.json$/, '');
+  if (/^[A-Z]/.test(base)) return classNameToFeatureKey(base);
+  return base.toLowerCase();
+}
+
+/**
+ * Merges an array of {@link LocatorEntry} records from multiple child outputs.
+ *
+ * Deduplication rules (applied in order):
+ *  1. Group by `name` field.
+ *  2. Keep the entry with the highest `confidenceScore`.
+ *  3. On a tie, keep the entry with the higher strategy priority
+ *     (data-testid > getByRole > getByLabel > getByPlaceholder > getByText > other).
+ *  4. On a further tie, keep the first-seen entry.
+ *
+ * @param entries - All locator entries collected across child outputs.
+ * @returns Deduplicated, priority-ordered locator entries.
+ */
+export function mergeLocatorEntries(entries: LocatorEntry[]): LocatorEntry[] {
+  const byName = new Map<string, LocatorEntry>();
+
+  for (const entry of entries) {
+    const key = entry.name || entry.target || entry.selector;
+    if (!key) continue;
+
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, entry);
+      continue;
+    }
+
+    const incomingConf = entry.confidenceScore ?? 0;
+    const existingConf = existing.confidenceScore ?? 0;
+
+    if (incomingConf > existingConf) {
+      byName.set(key, entry);
+    } else if (
+      incomingConf === existingConf &&
+      locatorJsonStrategyPriority(entry.strategy) > locatorJsonStrategyPriority(existing.strategy)
+    ) {
+      byName.set(key, entry);
+    }
+  }
+
+  return Array.from(byName.values());
+}
+
+// ---------------------------------------------------------------------------
 // TypeScript source parsers (deterministic, regex-based, format-aware)
 // ---------------------------------------------------------------------------
 
@@ -259,6 +364,8 @@ interface MergeStats {
   duplicateMethodsMerged: number;
   duplicateLocatorsRemoved: number;
   finalFilesGenerated: number;
+  locatorFilesGenerated: number;
+  lowConfidenceLocators: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,12 +412,15 @@ export class ReviewMergeService {
       duplicateMethodsMerged: 0,
       duplicateLocatorsRemoved: 0,
       finalFilesGenerated: 0,
+      locatorFilesGenerated: 0,
+      lowConfidenceLocators: 0,
     };
 
     // ── Step 1: Collect all child artefacts ────────────────────────────────
     const pomsByFeature = new Map<string, ParsedPom[]>();
     const specsByFeature = new Map<string, ParsedSpec[]>();
     const dataByFeature = new Map<string, ParsedDataFile[]>();
+    const locatorsByFeature = new Map<string, LocatorEntry[]>();
 
     for (const childId of childIds) {
       const srcDir = path.join(JOBS_BASE_DIR, job.jobId, 'children', childId, 'generated');
@@ -321,7 +431,7 @@ export class ReviewMergeService {
       this.collectPoms(srcDir, pomsByFeature);
       this.collectSpecs(srcDir, specsByFeature);
       this.collectData(srcDir, dataByFeature);
-      this.copyLocators(srcDir, finalDir, childId);
+      this.collectLocators(srcDir, locatorsByFeature);
     }
 
     // ── Step 2: Determine detected features ────────────────────────────────
@@ -336,6 +446,9 @@ export class ReviewMergeService {
       childOutputsReceived: stats.childOutputsReceived,
       featuresDetected: stats.featuresDetected,
     });
+
+    // ── Step 2b: Write merged locator files ────────────────────────────────
+    this.writeLocatorFiles(finalDir, locatorsByFeature, stats, job.jobId);
 
     // ── Step 3: Merge and write final files per feature ────────────────────
     for (const feature of allFeatures) {
@@ -546,33 +659,110 @@ export class ReviewMergeService {
   }
 
   /**
-   * Copies locator JSON files into the final project, skipping exact duplicates.
-   * Conflicts are resolved by appending the childId so no data is lost.
+   * Collects locator JSON files from a single child's output directory into a
+   * feature-keyed accumulator map.
+   *
+   * The feature key is derived from the file name using
+   * {@link featureKeyFromLocatorFileName}, or falls back to the `feature` field
+   * inside the JSON if present.
+   *
+   * @param srcDir - Root of a child agent's generated output.
+   * @param target - Accumulator: feature key → all raw {@link LocatorEntry} arrays.
    */
-  private copyLocators(srcDir: string, finalDir: string, childId: string): void {
+  private collectLocators(srcDir: string, target: Map<string, LocatorEntry[]>): void {
     const locatorsDir = this.resolveSubdir(srcDir, 'locators');
     if (!fs.existsSync(locatorsDir)) return;
-
-    const destDir = path.join(finalDir, 'src', 'locators');
 
     for (const entry of fs.readdirSync(locatorsDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
 
-      const srcPath = path.join(locatorsDir, entry.name);
-      const destPath = path.join(destDir, entry.name);
+      try {
+        const raw = fs.readFileSync(path.join(locatorsDir, entry.name), 'utf8');
+        const parsed = JSON.parse(raw) as Partial<LocatorFile>;
+        if (!Array.isArray(parsed.locators)) continue;
 
-      if (fs.existsSync(destPath)) {
-        const existing = fs.readFileSync(destPath, 'utf8');
-        const incoming = fs.readFileSync(srcPath, 'utf8');
-        if (existing === incoming) continue;
-        // Conflict: use childId-suffixed name
-        const ext = path.extname(entry.name);
-        const base = path.basename(entry.name, ext);
-        fs.copyFileSync(srcPath, path.join(destDir, `${base}.${childId}${ext}`));
-      } else {
-        fs.copyFileSync(srcPath, destPath);
+        const featureKey =
+          (typeof parsed.feature === 'string' && parsed.feature) ||
+          featureKeyFromLocatorFileName(entry.name);
+
+        let bucket = target.get(featureKey);
+        if (!bucket) {
+          bucket = [];
+          target.set(featureKey, bucket);
+        }
+        bucket.push(...parsed.locators);
+      } catch {
+        // Skip unreadable / malformed locator files gracefully
       }
     }
+  }
+
+  /**
+   * Merges collected locator entries per feature and writes one clean
+   * `<feature>.locators.json` file per feature into `final-project/src/locators/`.
+   *
+   * Each file uses the schema defined by {@link LocatorFile}.  Duplicates are
+   * removed using {@link mergeLocatorEntries}.
+   *
+   * Locators with `confidenceScore < 0.5` are counted as low-confidence in stats.
+   *
+   * @param finalDir - Absolute path to the assembled final project.
+   * @param locatorsByFeature - Feature key → raw entries collected from all children.
+   * @param stats - Mutable stats object updated in place.
+   * @param jobId - Used for structured logging only.
+   */
+  private writeLocatorFiles(
+    finalDir: string,
+    locatorsByFeature: Map<string, LocatorEntry[]>,
+    stats: MergeStats,
+    jobId: string,
+  ): void {
+    const LOW_CONFIDENCE_THRESHOLD = 0.5;
+    const destDir = path.join(finalDir, 'src', 'locators');
+
+    const sourceFileCount = Array.from(locatorsByFeature.values()).reduce(
+      (sum, entries) => sum + entries.length,
+      0,
+    );
+
+    logger.info('[ReviewMerge] locator files found', {
+      jobId,
+      sourceLocatorFiles: sourceFileCount,
+      featuresWithLocators: locatorsByFeature.size,
+    });
+
+    for (const [feature, rawEntries] of locatorsByFeature) {
+      const before = rawEntries.length;
+      const merged = mergeLocatorEntries(rawEntries);
+      const removed = before - merged.length;
+      stats.duplicateLocatorsRemoved += removed;
+
+      const lowConf = merged.filter((e) => (e.confidenceScore ?? 1) < LOW_CONFIDENCE_THRESHOLD);
+      stats.lowConfidenceLocators += lowConf.length;
+
+      const pageObject = featureKeyToClassName(feature);
+      const locatorFile: LocatorFile = { feature, pageObject, locators: merged };
+
+      const outPath = path.join(destDir, `${feature}.locators.json`);
+      fs.writeFileSync(outPath, JSON.stringify(locatorFile, null, 2), 'utf8');
+      stats.locatorFilesGenerated++;
+
+      logger.info('[ReviewMerge] locators merged', {
+        jobId,
+        feature,
+        rawEntries: before,
+        duplicatesRemoved: removed,
+        finalLocatorCount: merged.length,
+        lowConfidenceCount: lowConf.length,
+      });
+    }
+
+    logger.info('[ReviewMerge] locator files generated', {
+      jobId,
+      locatorFilesGenerated: stats.locatorFilesGenerated,
+      duplicateLocatorsRemoved: stats.duplicateLocatorsRemoved,
+      lowConfidenceLocators: stats.lowConfidenceLocators,
+    });
   }
 
   // ---------------------------------------------------------------------------

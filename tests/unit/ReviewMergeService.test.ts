@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { extractTestBlocks } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
+import {
+  extractTestBlocks,
+  mergeLocatorEntries,
+} from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
+import type { LocatorEntry } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
 
 // ---------------------------------------------------------------------------
 // extractTestBlocks unit tests
@@ -147,5 +151,115 @@ test("Double quote title", async ({ page }) => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0].title).toBe("'Single quote title'");
     expect(blocks[1].title).toBe('"Double quote title"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeLocatorEntries unit tests
+// ---------------------------------------------------------------------------
+// These tests verify the deduplication logic for locator JSON entries:
+//  - Unique entries are all preserved
+//  - Duplicates are resolved by confidence score, then strategy priority
+// ---------------------------------------------------------------------------
+
+describe('mergeLocatorEntries', () => {
+  it('returns all entries when there are no duplicates', () => {
+    const entries: LocatorEntry[] = [
+      { name: 'usernameInput', selector: "page.getByPlaceholder('Username')", strategy: 'getByPlaceholder', confidenceScore: 0.9 },
+      { name: 'passwordInput', selector: "page.getByPlaceholder('Password')", strategy: 'getByPlaceholder', confidenceScore: 0.88 },
+      { name: 'loginButton', selector: "page.getByRole('button', { name: 'Login' })", strategy: 'getByRole', confidenceScore: 0.95 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(3);
+    const names = result.map((e) => e.name);
+    expect(names).toContain('usernameInput');
+    expect(names).toContain('passwordInput');
+    expect(names).toContain('loginButton');
+  });
+
+  it('keeps the entry with higher confidence score when names match', () => {
+    const entries: LocatorEntry[] = [
+      { name: 'usernameInput', selector: "page.locator('#username')", strategy: 'locator', confidenceScore: 0.6 },
+      { name: 'usernameInput', selector: "page.getByPlaceholder('Username')", strategy: 'getByPlaceholder', confidenceScore: 0.91 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].confidenceScore).toBe(0.91);
+    expect(result[0].strategy).toBe('getByPlaceholder');
+  });
+
+  it('prefers higher-priority strategy when confidence scores are equal', () => {
+    const entries: LocatorEntry[] = [
+      { name: 'submitBtn', selector: "page.getByText('Submit')", strategy: 'getByText', confidenceScore: 0.8 },
+      { name: 'submitBtn', selector: "page.getByRole('button', { name: 'Submit' })", strategy: 'getByRole', confidenceScore: 0.8 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].strategy).toBe('getByRole');
+  });
+
+  it('prefers data-testid over getByRole when confidence is tied', () => {
+    const entries: LocatorEntry[] = [
+      { name: 'cartIcon', selector: "page.getByRole('link', { name: 'Cart' })", strategy: 'getByRole', confidenceScore: 0.85 },
+      { name: 'cartIcon', selector: "page.getByTestId('shopping-cart')", strategy: 'data-testid', confidenceScore: 0.85 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].strategy).toBe('data-testid');
+  });
+
+  it('keeps first-seen entry when both confidence and strategy are tied', () => {
+    const entries: LocatorEntry[] = [
+      { name: 'menuItem', selector: "page.getByRole('menuitem', { name: 'Products' })", strategy: 'getByRole', confidenceScore: 0.75 },
+      { name: 'menuItem', selector: "page.getByRole('menuitem', { name: 'All Items' })", strategy: 'getByRole', confidenceScore: 0.75 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].selector).toContain('Products');
+  });
+
+  it('deduplicates correctly across 10 SauceDemo-like locators from multiple children', () => {
+    const child1: LocatorEntry[] = [
+      { name: 'usernameInput', selector: "page.getByPlaceholder('Username')", strategy: 'getByPlaceholder', confidenceScore: 0.91 },
+      { name: 'passwordInput', selector: "page.getByPlaceholder('Password')", strategy: 'getByPlaceholder', confidenceScore: 0.91 },
+      { name: 'loginButton', selector: "page.locator('[data-test=\"login-button\"]')", strategy: 'locator', confidenceScore: 0.7 },
+      { name: 'errorMessage', selector: "page.locator('[data-test=\"error-button\"]')", strategy: 'locator', confidenceScore: 0.72 },
+      { name: 'inventoryList', selector: "page.locator('[data-test=\"inventory-container\"]')", strategy: 'locator', confidenceScore: 0.8 },
+    ];
+    const child2: LocatorEntry[] = [
+      { name: 'usernameInput', selector: "page.getByTestId('user-name')", strategy: 'data-testid', confidenceScore: 0.91 },
+      { name: 'loginButton', selector: "page.getByTestId('login-button')", strategy: 'data-testid', confidenceScore: 0.95 },
+      { name: 'productTitle', selector: "page.getByRole('heading', { level: 3 })", strategy: 'getByRole', confidenceScore: 0.85 },
+      { name: 'addToCartBtn', selector: "page.getByRole('button', { name: /add to cart/i })", strategy: 'getByRole', confidenceScore: 0.9 },
+      { name: 'cartBadge', selector: "page.getByTestId('shopping-cart-badge')", strategy: 'data-testid', confidenceScore: 0.93 },
+    ];
+
+    const result = mergeLocatorEntries([...child1, ...child2]);
+    // 5 unique names: usernameInput, passwordInput, loginButton, errorMessage,
+    // inventoryList, productTitle, addToCartBtn, cartBadge = 8 unique names
+    expect(result).toHaveLength(8);
+
+    const byName = Object.fromEntries(result.map((e) => [e.name, e]));
+
+    // child2 data-testid wins over child1 getByPlaceholder (same confidence)
+    expect(byName['usernameInput'].strategy).toBe('data-testid');
+
+    // child2 getByTestId wins for loginButton (higher confidence 0.95 > 0.7)
+    expect(byName['loginButton'].strategy).toBe('data-testid');
+    expect(byName['loginButton'].confidenceScore).toBe(0.95);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(mergeLocatorEntries([])).toHaveLength(0);
+  });
+
+  it('falls back to target field for deduplication when name is missing', () => {
+    const entries: LocatorEntry[] = [
+      { name: '', target: 'Username field', selector: "page.locator('#user')", strategy: 'locator', confidenceScore: 0.5 },
+      { name: '', target: 'Username field', selector: "page.getByPlaceholder('Username')", strategy: 'getByPlaceholder', confidenceScore: 0.9 },
+    ];
+    const result = mergeLocatorEntries(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].confidenceScore).toBe(0.9);
   });
 });
