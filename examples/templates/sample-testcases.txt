@@ -1,0 +1,52 @@
+TEST CASE START
+ID: TC-001
+NAME: Login with valid credentials
+DESCRIPTION: Verify that a user can log in with correct credentials
+STEP: 1|navigate|https://www.saucedemo.com|
+STEP: 2|enter|Username field|standard_user
+STEP: 3|enter|Password field|secret_sauce
+STEP: 4|click|Login button|
+STEP: 5|verifyVisible|Products page|
+TEST CASE END
+
+TEST CASE START
+ID: TC-002
+NAME: Login with invalid password
+DESCRIPTION: Verify that an error is shown when the password is incorrect
+STEP: 1|navigate|https://www.saucedemo.com|
+STEP: 2|enter|Username field|standard_user
+STEP: 3|enter|Password field|wrong_password
+STEP: 4|click|Login button|
+STEP: 5|verifyText|error message|Username and password do not match
+TEST CASE END
+
+TEST CASE START
+ID: TC-003
+NAME: Add item to cart
+DESCRIPTION: Verify that a product can be added to the shopping cart
+STEP: 1|navigate|https://www.saucedemo.com|
+STEP: 2|enter|Username field|standard_user
+STEP: 3|enter|Password field|secret_sauce
+STEP: 4|click|Login button|
+STEP: 5|click|Add to cart button for first product|
+STEP: 6|verifyText|cart badge|1
+TEST CASE END
+
+TEST CASE START
+ID: TC-004
+NAME: Complete checkout flow
+DESCRIPTION: Verify that a user can complete a purchase end-to-end
+STEP: 1|navigate|https://www.saucedemo.com|
+STEP: 2|enter|Username field|standard_user
+STEP: 3|enter|Password field|secret_sauce
+STEP: 4|click|Login button|
+STEP: 5|click|Add to cart button for first product|
+STEP: 6|click|Cart icon|
+STEP: 7|click|Checkout button|
+STEP: 8|enter|First Name field|Test
+STEP: 9|enter|Last Name field|User
+STEP: 10|enter|Postal Code field|12345
+STEP: 11|click|Continue button|
+STEP: 12|click|Finish button|
+STEP: 13|verifyVisible|Order confirmation page|
+TEST CASE END

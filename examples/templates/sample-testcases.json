@@ -1,0 +1,51 @@
+{
+  "batchName": "SauceDemo Sample Test Cases",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Login with valid credentials",
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "https://www.saucedemo.com" },
+        { "order": 2, "action": "enter", "target": "Username field", "value": "standard_user" },
+        { "order": 3, "action": "enter", "target": "Password field", "value": "secret_sauce" },
+        { "order": 4, "action": "click", "target": "Login button" },
+        { "order": 5, "action": "verifyVisible", "target": "Products page" }
+      ],
+      "expectedResults": [
+        "Products page should be displayed after successful login"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "name": "Login with invalid password",
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "https://www.saucedemo.com" },
+        { "order": 2, "action": "enter", "target": "Username field", "value": "standard_user" },
+        { "order": 3, "action": "enter", "target": "Password field", "value": "wrong_password" },
+        { "order": 4, "action": "click", "target": "Login button" },
+        { "order": 5, "action": "verifyText", "target": "error message", "value": "Username and password do not match" }
+      ],
+      "expectedResults": [
+        "Error message should appear indicating invalid credentials"
+      ]
+    },
+    {
+      "id": "TC-003",
+      "name": "Add item to cart",
+      "preconditions": [
+        "User is logged in as standard_user"
+      ],
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "https://www.saucedemo.com" },
+        { "order": 2, "action": "enter", "target": "Username field", "value": "standard_user" },
+        { "order": 3, "action": "enter", "target": "Password field", "value": "secret_sauce" },
+        { "order": 4, "action": "click", "target": "Login button" },
+        { "order": 5, "action": "click", "target": "Add to cart button for first product" },
+        { "order": 6, "action": "verifyText", "target": "cart badge", "value": "1" }
+      ],
+      "expectedResults": [
+        "Cart badge should display count of 1"
+      ]
+    }
+  ]
+}
