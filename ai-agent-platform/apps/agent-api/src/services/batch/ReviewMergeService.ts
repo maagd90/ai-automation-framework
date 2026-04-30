@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { JOBS_BASE_DIR } from '../../config';
+import { JOBS_BASE_DIR, REPO_ROOT_DIR } from '../../config';
+import { runtimeConfig } from '../../config/runtime.config';
 import type { JobEntity } from '../../domain/Job';
 import { logger } from '../../utils/logger';
 
@@ -564,24 +565,45 @@ export class ReviewMergeService {
   }
 
   /**
-   * Runs `npx tsc --noEmit` inside the generated project to validate TypeScript syntax.
+   * Runs `tsc --noEmit` to validate the generated project's TypeScript syntax.
    *
-   * This catches structurally invalid spec files (e.g. unclosed test blocks) before
-   * the project is zipped and returned to the user.
+   * When INSTALL_GENERATED_PROJECT_DEPS=false (the default), the generated project
+   * has no node_modules of its own, so `npx tsc` inside that directory would fail.
+   * In that case we resolve the `tsc` binary from the platform's node_modules and
+   * run it from the repo root so the platform's type declarations are available.
+   *
+   * When INSTALL_GENERATED_PROJECT_DEPS=true, the generated project has its own
+   * node_modules, so we can invoke `npx tsc` directly from the project directory.
    *
    * @throws Error if tsc reports any diagnostics.
    */
   private runTscValidation(finalDir: string): void {
     try {
       const { execSync } = require('child_process') as typeof import('child_process');
-      // Install the minimum type declarations so tsc can resolve @playwright/test.
-      // We use the platform's local playwright types to avoid a network call.
       const tsConfigPath = path.join(finalDir, 'tsconfig.json');
-      execSync(`npx tsc --noEmit --project "${tsConfigPath}" --skipLibCheck`, {
-        cwd: finalDir,
-        stdio: 'pipe',
-        timeout: 30_000,
-      });
+
+      if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
+        // Resolve tsc from the platform node_modules so we don't need the
+        // generated project to have its own node_modules installed.
+        const platformTsc = path.join(REPO_ROOT_DIR, 'node_modules', '.bin', 'tsc');
+        const tscBin = fs.existsSync(platformTsc) ? platformTsc : 'tsc';
+        logger.info('[ReviewMerge] Running TypeScript validation via platform tsc', {
+          tscBin,
+          tsConfigPath,
+        });
+        execSync(`"${tscBin}" --noEmit --project "${tsConfigPath}" --skipLibCheck`, {
+          cwd: REPO_ROOT_DIR,
+          stdio: 'pipe',
+          timeout: 30_000,
+        });
+      } else {
+        execSync(`npx tsc --noEmit --project "${tsConfigPath}" --skipLibCheck`, {
+          cwd: finalDir,
+          stdio: 'pipe',
+          timeout: 30_000,
+        });
+      }
+
       logger.info('[ReviewMerge] TypeScript validation passed', { finalDir });
     } catch (err: unknown) {
       const output =
