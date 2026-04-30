@@ -2,9 +2,12 @@
 # =============================================================================
 # deploy.sh — Production-ready deployment script for the AI Automation Framework
 #
-# Usage:  chmod +x scripts/deploy.sh && ./scripts/deploy.sh
+# Usage:
+#   ./scripts/deploy.sh          Normal deploy
+#   ./scripts/deploy.sh --clean  Clean rebuild, removes Docker volumes
+#   ./scripts/deploy.sh --help   Show help
 #
-# What it does:
+# What it does (normal mode):
 #   1. Verifies Docker and cloudflared are available
 #   2. Stops any running containers
 #   3. Prunes unused Docker images (light cleanup)
@@ -12,8 +15,16 @@
 #   5. Waits for services to become ready and checks the API health endpoint
 #   6. Starts a Cloudflare Quick Tunnel for public HTTPS access
 #
+# What it does (--clean mode):
+#   1. Verifies Docker and cloudflared are available
+#   2. Stops any running containers AND removes volumes
+#   3. Prunes the Docker build cache
+#   4. Rebuilds images without cache, then starts containers
+#   5. Waits for services to become ready and checks the API health endpoint
+#   6. Starts a Cloudflare Quick Tunnel for public HTTPS access
+#
 # Idempotent — safe to run multiple times.
-# Does NOT remove volumes, modify .env, or print secret values.
+# Does NOT modify .env or print secret values.
 # =============================================================================
 
 set -euo pipefail
@@ -38,8 +49,53 @@ success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 warning() { echo -e "${YELLOW}[WARNING]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC}   $*" >&2; }
 
+# ── Argument parsing ───────────────────────────────────────────────────────────
+CLEAN_MODE=false
+
+for arg in "$@"; do
+  case "${arg}" in
+    --help|-h)
+      echo ""
+      echo "Usage:"
+      echo "  ./scripts/deploy.sh          Normal deploy"
+      echo "  ./scripts/deploy.sh --clean  Clean rebuild, removes Docker volumes"
+      echo "  ./scripts/deploy.sh --help   Show help"
+      echo ""
+      echo "Normal deploy:"
+      echo "  - docker compose down"
+      echo "  - docker image prune -f"
+      echo "  - docker compose up --build -d"
+      echo "  - API health check"
+      echo "  - Start Cloudflare tunnel"
+      echo ""
+      echo "Clean rebuild:"
+      echo "  - docker compose down -v  (volumes removed)"
+      echo "  - docker builder prune -f"
+      echo "  - docker compose build --no-cache"
+      echo "  - docker compose up -d"
+      echo "  - API health check"
+      echo "  - Start Cloudflare tunnel"
+      echo ""
+      echo "Note: chmod +x scripts/deploy.sh before first run."
+      exit 0
+      ;;
+    --clean)
+      CLEAN_MODE=true
+      ;;
+    *)
+      error "Unknown argument: ${arg}"
+      echo "Run './scripts/deploy.sh --help' for usage."
+      exit 1
+      ;;
+  esac
+done
+
 # ── Pre-flight checks ──────────────────────────────────────────────────────────
-info "Starting deployment..."
+if [ "${CLEAN_MODE}" = true ]; then
+  info "Running clean rebuild. Docker volumes will be removed."
+else
+  info "Running normal deployment."
+fi
 
 if ! command -v docker &>/dev/null; then
   error "Docker is not installed."
@@ -66,20 +122,41 @@ success "Pre-flight checks passed."
 # ── Change to repo root so docker compose picks up docker-compose.yml ─────────
 cd "${REPO_ROOT}"
 
-# ── Stop existing containers ───────────────────────────────────────────────────
-info "Stopping existing containers..."
-docker compose down || true
-success "Existing containers stopped."
+if [ "${CLEAN_MODE}" = true ]; then
+  # ── Clean mode: stop + remove volumes ───────────────────────────────────────
+  info "Stopping existing containers and removing volumes..."
+  docker compose down -v || true
+  success "Containers and volumes removed."
 
-# ── Light Docker cleanup (images only — volumes are preserved) ─────────────────
-info "Cleaning unused Docker images..."
-docker image prune -f
-success "Image cleanup done."
+  # ── Clean mode: prune build cache ───────────────────────────────────────────
+  info "Pruning Docker build cache..."
+  docker builder prune -f
+  success "Build cache pruned."
 
-# ── Build and start containers ─────────────────────────────────────────────────
-info "Building and starting containers (this may take a few minutes on first run)..."
-docker compose up --build -d
-success "Containers started."
+  # ── Clean mode: no-cache build then start ───────────────────────────────────
+  info "Building images without cache (this may take several minutes)..."
+  docker compose build --no-cache
+  success "Images built."
+
+  info "Starting containers..."
+  docker compose up -d
+  success "Containers started."
+else
+  # ── Normal mode: stop containers ────────────────────────────────────────────
+  info "Stopping existing containers..."
+  docker compose down || true
+  success "Existing containers stopped."
+
+  # ── Normal mode: light Docker cleanup (images only) ─────────────────────────
+  info "Cleaning unused Docker images..."
+  docker image prune -f
+  success "Image cleanup done."
+
+  # ── Normal mode: build and start containers ──────────────────────────────────
+  info "Building and starting containers (this may take a few minutes on first run)..."
+  docker compose up --build -d
+  success "Containers started."
+fi
 
 # ── Wait for services to initialise ───────────────────────────────────────────
 info "Waiting 10 seconds for services to initialise..."
