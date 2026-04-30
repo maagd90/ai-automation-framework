@@ -798,10 +798,11 @@ npm run show-report
    */
   private runPrettierIfAvailable(finalDir: string, jobId: string): void {
     try {
-      // Only attempt formatting when prettier is discoverable in the platform runtime
+      // Attempt to use the prettier binary from the platform's node_modules.
+      // Fall back silently if prettier is not installed.
       const { execSync } = require('child_process') as typeof import('child_process');
-      execSync('npx --no prettier --version', { stdio: 'ignore', timeout: 5_000 });
-      execSync('npx --no prettier --write "src/**/*.ts"', {
+      execSync('npx prettier --version', { stdio: 'ignore', timeout: 5_000 });
+      execSync('npx prettier --write "src/**/*.ts"', {
         cwd: finalDir,
         stdio: 'pipe',
         timeout: 30_000,
