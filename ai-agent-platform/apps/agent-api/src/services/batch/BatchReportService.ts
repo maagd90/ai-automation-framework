@@ -4,10 +4,15 @@ import type { ChildRunResult } from './ChildJobRunner';
 /**
  * Parses Playwright test-runner stdout to extract aggregate pass/fail/total counts.
  *
- * Playwright prints summary lines such as:
+ * Playwright prints summary lines such as (tested against Playwright >=1.40):
  *   "10 passed (12.3s)"
  *   "8 passed, 2 failed (10s)"
  *   "2 failed (5s)"
+ *
+ * The patterns match the canonical summary line that appears at the end of a run.
+ * If Playwright changes its output format in a future version, this function will
+ * return null (graceful degradation — the report is still valid, just without
+ * execution counts).
  *
  * Returns null when the stdout does not contain a recognisable summary.
  */

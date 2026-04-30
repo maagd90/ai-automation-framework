@@ -235,7 +235,7 @@ export class BatchJobManager {
         parallelAgents: effectiveParallelAgents,
         executionMode: job.executionMode,
         testRunExitCode,
-        testRunStdout: testRunStdout,
+        testRunStdout,
         aiUsage,
         failureAnalysis,
       });

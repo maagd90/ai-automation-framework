@@ -200,7 +200,7 @@ export function extractTestBlocks(source: string): ParsedTestBlock[] {
     // Guard: only accept `);` within a short distance to avoid grabbing a `);`
     // from a completely unrelated expression deep in the file.
     const bodyEnd =
-      closingEnd !== -1 && closingEnd - i <= 4 ? closingEnd + 2 : i;
+      closingEnd !== -1 && closingEnd - i <= MAX_CLOSING_DISTANCE ? closingEnd + 2 : i;
     const body = source.slice(match.index, bodyEnd).trim();
     blocks.push({ title, body });
   }
@@ -208,9 +208,21 @@ export function extractTestBlocks(source: string): ParsedTestBlock[] {
   return blocks;
 }
 
-// ---------------------------------------------------------------------------
-// Utility helpers
-// ---------------------------------------------------------------------------
+/**
+ * Maximum number of whitespace/newline characters that can appear between the
+ * arrow-function body's closing `}` and the test call's terminating `);`.
+ *
+ * In standard Playwright spec format the sequence is `});\n`, so a gap of up to
+ * 4 characters (e.g. `\r\n`) is acceptable. Anything larger indicates the next
+ * `);` belongs to an unrelated expression inside the file.
+ */
+const MAX_CLOSING_DISTANCE = 4;
+
+/**
+ * Maximum number of characters of tsc error output to include in the thrown
+ * Error message. Keeps the error concise while still showing the first failure.
+ */
+const MAX_TSC_ERROR_OUTPUT_LENGTH = 2000;
 
 function lcFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
@@ -462,7 +474,7 @@ export class ReviewMergeService {
           : '') ||
         (err instanceof Error ? err.message : String(err));
       throw new Error(
-        `Generated project TypeScript validation failed. The spec files contain syntax errors:\n${output.slice(0, 2000)}`,
+        `Generated project TypeScript validation failed. The spec files contain syntax errors:\n${output.slice(0, MAX_TSC_ERROR_OUTPUT_LENGTH)}`,
       );
     }
   }
