@@ -235,8 +235,8 @@ describe('mergeLocatorEntries', () => {
     ];
 
     const result = mergeLocatorEntries([...child1, ...child2]);
-    // 5 unique names: usernameInput, passwordInput, loginButton, errorMessage,
-    // inventoryList, productTitle, addToCartBtn, cartBadge = 8 unique names
+    // 8 unique names: usernameInput, passwordInput, loginButton, errorMessage,
+    // inventoryList, productTitle, addToCartBtn, cartBadge
     expect(result).toHaveLength(8);
 
     const byName = Object.fromEntries(result.map((e) => [e.name, e]));

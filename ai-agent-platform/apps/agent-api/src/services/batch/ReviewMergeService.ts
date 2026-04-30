@@ -96,8 +96,11 @@ export interface LocatorFile {
 /**
  * Strategy priority for locator JSON files.
  * Higher value = preferred when confidence scores tie.
- * Ordered per spec: data-testid > getByRole > getByLabel > getByPlaceholder >
- * getByText > css/xpath/nth.
+ * Ordered per spec: data-testid > getByTestId > getByRole > getByLabel >
+ * getByPlaceholder > getByText > css/xpath/nth.
+ *
+ * Both `data-testid` (attribute string) and `getByTestId` (method name) are
+ * accepted; `data-testid` is ranked higher as it is the more explicit form.
  */
 const LOCATOR_JSON_STRATEGY_PRIORITY: Record<string, number> = {
   'data-testid': 6,
