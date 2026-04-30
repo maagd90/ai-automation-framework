@@ -579,19 +579,28 @@ export class ReviewMergeService {
    */
   private runTscValidation(finalDir: string): void {
     try {
-      const { execSync } = require('child_process') as typeof import('child_process');
+      const { execSync, execFileSync } = require('child_process') as typeof import('child_process');
       const tsConfigPath = path.join(finalDir, 'tsconfig.json');
 
       if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
         // Resolve tsc from the platform node_modules so we don't need the
         // generated project to have its own node_modules installed.
         const platformTsc = path.join(REPO_ROOT_DIR, 'node_modules', '.bin', 'tsc');
-        const tscBin = fs.existsSync(platformTsc) ? platformTsc : 'tsc';
+        let tscBin: string;
+        if (fs.existsSync(platformTsc)) {
+          tscBin = platformTsc;
+        } else {
+          logger.warn('[ReviewMerge] Platform tsc not found, falling back to system tsc', {
+            expected: platformTsc,
+          });
+          tscBin = 'tsc';
+        }
         logger.info('[ReviewMerge] Running TypeScript validation via platform tsc', {
           tscBin,
           tsConfigPath,
         });
-        execSync(`"${tscBin}" --noEmit --project "${tsConfigPath}" --skipLibCheck`, {
+        // Use execFileSync with an explicit args array to avoid shell metacharacter injection.
+        execFileSync(tscBin, ['--noEmit', '--project', tsConfigPath, '--skipLibCheck'], {
           cwd: REPO_ROOT_DIR,
           stdio: 'pipe',
           timeout: 30_000,
