@@ -7,6 +7,8 @@ export { TestCaseBatchValidator } from './parsers/TestCaseBatchValidator';
 export type { ValidationResult, ValidationError } from './parsers/TestCaseBatchValidator';
 export { TestCaseSplitter } from './parsers/TestCaseSplitter';
 export type { SplitResult } from './parsers/TestCaseSplitter';
+export { FeaturePartitioner } from './parsers/FeaturePartitioner';
+export type { FeaturePartition } from './parsers/FeaturePartitioner';
 
 // Scaling
 export { calculateRecommendedAgents } from './scaling/AgentScalingService';

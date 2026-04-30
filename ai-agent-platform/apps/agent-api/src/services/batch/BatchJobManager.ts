@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary, FailureAnalysis } from '@ai-agent/shared-types';
-import { AiPromptService, AiProviderFactory, TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
+import { AiPromptService, AiProviderFactory, TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter, FeaturePartitioner } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR, REPO_ROOT_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
@@ -10,7 +10,7 @@ import { jobStore } from '../JobStore';
 import { playwrightReady } from '../PlaywrightReadinessCheck';
 import { runtimeResourceService } from '../RuntimeResourceService';
 import { AgentPoolManager } from './AgentPoolManager';
-import { ProjectMerger } from './ProjectMerger';
+import { ReviewMergeService } from './ReviewMergeService';
 import { BatchReportService } from './BatchReportService';
 import { logger } from '../../utils/logger';
 
@@ -29,9 +29,10 @@ import { logger } from '../../utils/logger';
  */
 export class BatchJobManager {
   private readonly pool = new AgentPoolManager();
-  private readonly merger = new ProjectMerger();
+  private readonly merger = new ReviewMergeService();
   private readonly reporter = new BatchReportService();
   private readonly aiPromptService = new AiPromptService();
+  private readonly partitioner = new FeaturePartitioner();
 
   /**
    * Executes the full generation pipeline for the given job.
@@ -96,6 +97,15 @@ export class BatchJobManager {
           max: stepCounts.length > 0 ? Math.max(...stepCounts) : 0,
           total: stepCounts.reduce((sum, n) => sum + n, 0),
         },
+      });
+
+      // ── Feature partitioning metadata ─────────────────────────────────────
+      const partitions = this.partitioner.partition(batch.testCases);
+      const partitionSummary = partitions.map((p) => `${p.featureName}(${p.testCases.length})`).join(', ');
+      log(`Feature partitions: ${partitionSummary}`);
+      logger.info('Feature partitions detected', {
+        jobId: job.jobId,
+        partitions: partitions.map((p) => ({ feature: p.featureName, count: p.testCases.length })),
       });
 
       // ── Demo/cost guard: enforce effective per-job test-case cap ─────────
