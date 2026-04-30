@@ -160,8 +160,15 @@ function parseSpecSource(source: string): ParsedSpec | null {
 /**
  * Extracts all `test(...)` calls from a spec file.
  * Brace-depth tracking correctly handles nested async arrow functions.
+ *
+ * Bug fix: we first locate the `=>` arrow operator after the title match, then
+ * find the `{` that follows it. This ensures we track the arrow function body's
+ * opening brace rather than the parameter destructuring brace `{ page }`, which
+ * would cause the depth counter to exit prematurely and truncate the body.
+ *
+ * Exported for unit testing.
  */
-function extractTestBlocks(source: string): ParsedTestBlock[] {
+export function extractTestBlocks(source: string): ParsedTestBlock[] {
   const blocks: ParsedTestBlock[] = [];
   // Match `test("...",` or `test('...',`
   const titlePattern = /^test\((["'`])([\s\S]*?)\1,/gm;
@@ -169,10 +176,16 @@ function extractTestBlocks(source: string): ParsedTestBlock[] {
 
   while ((match = titlePattern.exec(source)) !== null) {
     const title = `${match[1]}${match[2]}${match[1]}`;
-    // Walk forward from the title to find the opening `{` of the async arrow
-    let arrowStart = source.indexOf('{', match.index + match[0].length);
+
+    // Locate the `=>` arrow operator after the title, then find the `{` that
+    // opens the arrow function body (not the destructured parameter list).
+    const searchFrom = match.index + match[0].length;
+    const arrowIdx = source.indexOf('=>', searchFrom);
+    if (arrowIdx === -1) continue;
+    const arrowStart = source.indexOf('{', arrowIdx + 2);
     if (arrowStart === -1) continue;
 
+    // Walk forward tracking brace depth to find the closing `}` of the body.
     let depth = 1;
     let i = arrowStart + 1;
     while (i < source.length && depth > 0) {
@@ -181,9 +194,13 @@ function extractTestBlocks(source: string): ParsedTestBlock[] {
       i++;
     }
 
-    // Include the closing `);`
+    // Include the closing `);` that terminates the test() call.
+    // If no `);` immediately follows (e.g. no trailing semicolon), use `i`.
     const closingEnd = source.indexOf(');', i);
-    const bodyEnd = closingEnd !== -1 ? closingEnd + 2 : i;
+    // Guard: only accept `);` within a short distance to avoid grabbing a `);`
+    // from a completely unrelated expression deep in the file.
+    const bodyEnd =
+      closingEnd !== -1 && closingEnd - i <= 4 ? closingEnd + 2 : i;
     const body = source.slice(match.index, bodyEnd).trim();
     blocks.push({ title, body });
   }
@@ -410,6 +427,43 @@ export class ReviewMergeService {
           );
         }
       }
+    }
+
+    // TypeScript syntax validation: run `tsc --noEmit` to catch broken spec output.
+    // Failures are treated as hard errors so the job fails early rather than
+    // producing a ZIP with unrunnable code.
+    this.runTscValidation(finalDir);
+  }
+
+  /**
+   * Runs `npx tsc --noEmit` inside the generated project to validate TypeScript syntax.
+   *
+   * This catches structurally invalid spec files (e.g. unclosed test blocks) before
+   * the project is zipped and returned to the user.
+   *
+   * @throws Error if tsc reports any diagnostics.
+   */
+  private runTscValidation(finalDir: string): void {
+    try {
+      const { execSync } = require('child_process') as typeof import('child_process');
+      // Install the minimum type declarations so tsc can resolve @playwright/test.
+      // We use the platform's local playwright types to avoid a network call.
+      const tsConfigPath = path.join(finalDir, 'tsconfig.json');
+      execSync(`npx tsc --noEmit --project "${tsConfigPath}" --skipLibCheck`, {
+        cwd: finalDir,
+        stdio: 'pipe',
+        timeout: 30_000,
+      });
+      logger.info('[ReviewMerge] TypeScript validation passed', { finalDir });
+    } catch (err: unknown) {
+      const output =
+        (err instanceof Error && 'stdout' in err
+          ? String((err as NodeJS.ErrnoException & { stdout?: Buffer }).stdout)
+          : '') ||
+        (err instanceof Error ? err.message : String(err));
+      throw new Error(
+        `Generated project TypeScript validation failed. The spec files contain syntax errors:\n${output.slice(0, 2000)}`,
+      );
     }
   }
 

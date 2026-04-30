@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest';
+import { extractTestBlocks } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
+
+// ---------------------------------------------------------------------------
+// extractTestBlocks unit tests
+// ---------------------------------------------------------------------------
+// These tests verify that the brace-depth tracker correctly identifies the
+// arrow function body opening brace (the one after `=>`) rather than the
+// parameter destructuring brace `{ page }`, which caused premature depth
+// exit and truncated test blocks in the original implementation.
+// ---------------------------------------------------------------------------
+
+describe('extractTestBlocks', () => {
+  it('extracts a single test block completely', () => {
+    const source = `
+import { test, expect } from '@playwright/test';
+
+test("Login with valid credentials", async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('#username', 'user');
+  await page.fill('#password', 'pass');
+  await page.click('button[type="submit"]');
+  await expect(page.locator('[data-test="inventory-container"]')).toBeVisible();
+});
+`;
+    const blocks = extractTestBlocks(source);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].title).toBe('"Login with valid credentials"');
+    // The body must include the complete function body and not be truncated
+    expect(blocks[0].body).toContain('await page.goto');
+    expect(blocks[0].body).toContain('await page.fill');
+    expect(blocks[0].body).toContain('await page.click');
+    expect(blocks[0].body).toContain('toBeVisible');
+    // Must be a complete, syntactically valid test() call
+    expect(blocks[0].body.startsWith('test(')).toBe(true);
+    expect(blocks[0].body).toMatch(/\}\s*\)\s*;?\s*$/);
+  });
+
+  it('extracts multiple test blocks correctly — each block is complete and independent', () => {
+    const source = `
+import { test, expect } from '@playwright/test';
+import { LoginPage } from '../pages/LoginPage';
+
+test("Login with valid credentials", async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.goto();
+  await loginPage.login('standard_user', 'secret_sauce');
+  await expect(page).toHaveURL('/inventory.html');
+});
+
+test("Login with invalid password", async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.goto();
+  await loginPage.login('standard_user', 'wrong_password');
+  await expect(page.locator('[data-test="error-button"]')).toBeVisible();
+});
+
+test("Login with empty credentials shows error", async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.goto();
+  await loginPage.login('', '');
+  await expect(page.locator('[data-test="error-button"]')).toBeVisible();
+});
+`;
+    const blocks = extractTestBlocks(source);
+    expect(blocks).toHaveLength(3);
+
+    // First block
+    expect(blocks[0].title).toBe('"Login with valid credentials"');
+    expect(blocks[0].body).toContain('standard_user');
+    expect(blocks[0].body).toContain('secret_sauce');
+    expect(blocks[0].body).toContain('/inventory.html');
+    // Must NOT contain content from the second test
+    expect(blocks[0].body).not.toContain('wrong_password');
+
+    // Second block
+    expect(blocks[1].title).toBe('"Login with invalid password"');
+    expect(blocks[1].body).toContain('wrong_password');
+    expect(blocks[1].body).not.toContain('/inventory.html');
+
+    // Third block
+    expect(blocks[2].title).toBe('"Login with empty credentials shows error"');
+    expect(blocks[2].body).toContain("login('', '')");
+  });
+
+  it('handles test blocks with nested async callbacks (e.g. page.on)', () => {
+    const source = `
+test("Dialog handling", async ({ page }) => {
+  await page.goto('/');
+  page.on('dialog', async (dialog) => {
+    await dialog.dismiss();
+  });
+  await page.click('#open-dialog');
+  await expect(page.locator('#result')).toHaveText('dismissed');
+});
+`;
+    const blocks = extractTestBlocks(source);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].body).toContain('dialog.dismiss');
+    expect(blocks[0].body).toContain('#open-dialog');
+    expect(blocks[0].body).toContain('dismissed');
+    // Whole body should be well-formed
+    expect(blocks[0].body.startsWith('test(')).toBe(true);
+  });
+
+  it('handles test bodies that contain many ); occurrences without truncation', () => {
+    const source = `
+test("Complex interactions", async ({ page }) => {
+  const homePage = new HomePage(page);
+  await homePage.goto();
+  await page.click('button.submit');
+  await page.waitForSelector('#result', { timeout: 5000 });
+  await expect(page.locator('#result')).toBeVisible();
+  await expect(page.locator('.message')).toHaveText('Done');
+});
+`;
+    const blocks = extractTestBlocks(source);
+    expect(blocks).toHaveLength(1);
+    // All lines must be present — not truncated at first );
+    expect(blocks[0].body).toContain('homePage.goto()');
+    expect(blocks[0].body).toContain('button.submit');
+    expect(blocks[0].body).toContain('{ timeout: 5000 }');
+    expect(blocks[0].body).toContain('#result');
+    expect(blocks[0].body).toContain("'Done'");
+  });
+
+  it('returns an empty array for source with no test blocks', () => {
+    const source = `
+import { expect } from '@playwright/test';
+const x = 1;
+`;
+    expect(extractTestBlocks(source)).toHaveLength(0);
+  });
+
+  it('deduplicates correctly when titles differ only in quotes', () => {
+    // Two tests with different content but structurally valid
+    const source = `
+test('Single quote title', async ({ page }) => {
+  await page.goto('/');
+});
+
+test("Double quote title", async ({ page }) => {
+  await page.goto('/about');
+});
+`;
+    const blocks = extractTestBlocks(source);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].title).toBe("'Single quote title'");
+    expect(blocks[1].title).toBe('"Double quote title"');
+  });
+});

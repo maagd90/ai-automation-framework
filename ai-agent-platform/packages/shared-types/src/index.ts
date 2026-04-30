@@ -76,9 +76,20 @@ export type BatchStatus = 'passed' | 'failed' | 'partial';
 
 export interface BatchReport {
   status: BatchStatus;
+  /** Execution mode used for this job (for UI display). */
+  executionMode?: ExecutionMode;
   totalCases: number;
+  /** Number of test cases successfully generated (= totalCases when all agents succeeded). */
   passed: number;
+  /** Number of test cases that failed generation. */
   failed: number;
+  /**
+   * Fields populated only in `generate-and-execute` mode after running Playwright.
+   * Represent the actual Playwright test execution results.
+   */
+  testsTotal?: number;
+  testsPassed?: number;
+  testsFailed?: number;
   durationMs: number;
   parallelAgents: number;
   aiUsage?: AiUsageSummary;

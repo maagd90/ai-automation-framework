@@ -210,11 +210,13 @@ export class BatchJobManager {
 
       // ── Optionally run tests ───────────────────────────────────────────────
       let testRunExitCode = 0;
+      let testRunStdout: string | undefined;
       let failureAnalysis: FailureAnalysis | undefined;
       if (job.executionMode === 'generate-and-execute') {
         log('Execution mode: Generate + Execute — running Playwright tests…');
         const testResult = await this.runPlaywright(finalDir, log);
         testRunExitCode = testResult.exitCode;
+        testRunStdout = testResult.stdout;
         if (testRunExitCode !== 0) {
           failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
         }
@@ -233,6 +235,7 @@ export class BatchJobManager {
         parallelAgents: effectiveParallelAgents,
         executionMode: job.executionMode,
         testRunExitCode,
+        testRunStdout: testRunStdout,
         aiUsage,
         failureAnalysis,
       });
@@ -373,6 +376,9 @@ export class BatchJobManager {
             ...process.env,
             PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
             PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
+            // Direct allure-playwright to write results into the generated project dir
+            // so they are included in the ZIP and the Allure HTML generation step finds them.
+            ALLURE_RESULTS_DIR: path.join(projectDir, 'allure-results'),
           },
         });
 
