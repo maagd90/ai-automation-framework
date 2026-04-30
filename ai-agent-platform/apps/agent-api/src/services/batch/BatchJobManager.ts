@@ -219,6 +219,9 @@ export class BatchJobManager {
           failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
         }
         log(`Playwright exit code: ${testRunExitCode}`);
+
+        // ── Allure report generation (non-blocking) ────────────────────────
+        await this.generateAllureReport(finalDir, log);
       }
 
       // ── Report ────────────────────────────────────────────────────────────
@@ -276,6 +279,65 @@ export class BatchJobManager {
       fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
       jobStore.set(job);
     }
+  }
+
+  /**
+   * Attempts to generate an Allure HTML report from the allure-results directory.
+   *
+   * Runs `npx allure generate allure-results --clean -o allure-report` in the project directory.
+   * This step is non-blocking: if Allure is unavailable or the command fails, a warning
+   * is logged and the job continues normally.
+   *
+   * @param projectDir - Absolute path to the final project directory.
+   * @param log - Log function that writes timestamped entries to the job log.
+   */
+  private generateAllureReport(
+    projectDir: string,
+    log: (msg: string) => void,
+  ): Promise<void> {
+    const allureResultsDir = path.join(projectDir, 'allure-results');
+    if (!fs.existsSync(allureResultsDir)) {
+      log('[Allure] allure-results directory not found — skipping Allure HTML generation');
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      log('[Allure] Generating Allure HTML report…');
+      const allureChild = spawn(
+        'npx',
+        ['allure', 'generate', 'allure-results', '--clean', '-o', 'allure-report'],
+        {
+          cwd: projectDir,
+          shell: false,
+          env: { ...process.env },
+        },
+      );
+
+      allureChild.stdout.on('data', (data: Buffer) => {
+        data.toString().split('\n').filter(Boolean).forEach((l) => log(`[Allure] ${l}`));
+      });
+
+      allureChild.stderr.on('data', (data: Buffer) => {
+        data.toString().split('\n').filter(Boolean).forEach((l) => log(`[Allure STDERR] ${l}`));
+      });
+
+      allureChild.on('close', (code) => {
+        if (code === 0) {
+          log('[Allure] HTML report generated at allure-report/');
+          logger.info('Allure report generated', { projectDir });
+        } else {
+          log(`[Allure] WARNING: Allure HTML generation exited with code ${code ?? '?'} — continuing without HTML report`);
+          logger.warn('Allure HTML generation failed (non-blocking)', { projectDir, exitCode: code });
+        }
+        resolve();
+      });
+
+      allureChild.on('error', (err) => {
+        log(`[Allure] WARNING: Allure command unavailable (${err.message}) — continuing without HTML report`);
+        logger.warn('Allure command unavailable (non-blocking)', { projectDir, error: err.message });
+        resolve();
+      });
+    });
   }
 
   /**

@@ -28,6 +28,8 @@ logs/
 coverage/
 playwright-report/
 test-results/
+allure-results/
+allure-report/
 
 # Secrets and environment overrides
 .env

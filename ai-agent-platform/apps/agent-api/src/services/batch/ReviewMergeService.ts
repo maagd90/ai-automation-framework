@@ -678,10 +678,15 @@ ${uniqueBlocks.join('\n\n')}
       scripts: {
         test: 'npx playwright test',
         'test:headed': 'npx playwright test --headed',
+        'test:allure': 'npx playwright test --reporter=line,html,allure-playwright',
+        'allure:generate': 'npx allure generate allure-results --clean -o allure-report',
+        'allure:open': 'npx allure open allure-report',
         'show-report': 'npx playwright show-report',
       },
       devDependencies: {
         '@playwright/test': '1.59.1',
+        'allure-playwright': '^3.0.0',
+        'allure-commandline': '^2.30.0',
         typescript: '^5.3.3',
       },
     };
@@ -699,7 +704,11 @@ export default defineConfig({
   forbidOnly: !!process.env['CI'],
   retries: ${job.retryCount},
   workers: 1,
-  reporter: [['html', { open: 'never' }], ['line']],
+  reporter: [
+    ['line'],
+    ['html', { open: 'never' }],
+    ['allure-playwright'],
+  ],
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:4000',
     headless: ${job.headless},
@@ -760,24 +769,50 @@ npx playwright install
 BASE_URL=http://localhost:4000 npx playwright test
 \`\`\`
 
-## View Report
+## View Playwright HTML Report
 
 \`\`\`bash
 npm run show-report
 \`\`\`
+
+## Allure Report
+
+This project is preconfigured with Allure reporting.
+
+Run tests (Allure results are written to \`allure-results/\` automatically):
+
+\`\`\`bash
+npm test
+\`\`\`
+
+Generate Allure HTML report:
+
+\`\`\`bash
+npm run allure:generate
+\`\`\`
+
+Open Allure report in browser:
+
+\`\`\`bash
+npm run allure:open
+\`\`\`
+
+Allure results are generated under \`allure-results/\` and the HTML report under \`allure-report/\`.
 
 ## Project Structure
 
 \`\`\`
 .
 ├── src/
-│   ├── pages/      # Page Object Models (one per feature)
-│   ├── tests/      # Playwright spec files (one per feature)
-│   ├── locators/   # Resolved locator snapshots
-│   ├── test-data/  # Externalised test data (one JSON per feature)
-│   ├── utils/      # Shared utilities
-│   └── fixtures/   # Test fixtures
-├── reports/        # Execution reports
+│   ├── pages/         # Page Object Models (one per feature)
+│   ├── tests/         # Playwright spec files (one per feature)
+│   ├── locators/      # Resolved locator snapshots
+│   ├── test-data/     # Externalised test data (one JSON per feature)
+│   ├── utils/         # Shared utilities
+│   └── fixtures/      # Test fixtures
+├── reports/           # Execution reports
+├── allure-results/    # Raw Allure test results (generated at runtime)
+├── allure-report/     # Allure HTML report (generated via npm run allure:generate)
 ├── playwright.config.ts
 ├── tsconfig.json
 └── package.json
