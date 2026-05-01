@@ -84,6 +84,7 @@ ai-automation-framework/
 │   └── packages/
 │       └── shared-types/        # Shared TypeScript interfaces
 ├── examples/                    # Sample test case files
+│   └── templates/               # Downloadable sample files (JSON, TXT, Feature, xlsx-info.md)
 ├── tests/                       # Unit tests (Vitest)
 ├── docker-compose.yml           # Docker environment (API + UI containers)
 └── .env.example                 # Environment variable reference
@@ -262,7 +263,90 @@ These defaults are set in both `.env.example` and `docker-compose.yml`. No chang
 
 ## Input Formats
 
-### Plain Text (`.txt`)
+| Format | Extension | Best For |
+|--------|-----------|----------|
+| JSON | `.json` | Recommended — best AI accuracy, structured data |
+| Plain Text | `.txt` | Easiest for manual QA teams |
+| Gherkin/BDD | `.feature` | BDD teams writing Given/When/Then scenarios |
+| Excel | `.xlsx` | ⏳ Planned — Phase 2 |
+
+---
+
+## Sample Input Files
+
+Ready-to-use sample files are available in [`examples/templates/`](examples/templates/).  
+You can also download them directly from the UI upload area.
+
+### JSON (`.json`) — Recommended
+
+JSON gives the AI agent the most structure to work with and produces the most accurate results.
+
+```json
+{
+  "batchName": "SauceDemo Sample Test Cases",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Login with valid credentials",
+      "priority": "high",
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "https://www.saucedemo.com" },
+        { "order": 2, "action": "enter", "target": "Username field", "value": "standard_user" },
+        { "order": 3, "action": "enter", "target": "Password field", "value": "secret_sauce" },
+        { "order": 4, "action": "click", "target": "Login button" },
+        { "order": 5, "action": "verifyVisible", "target": "Products page" }
+      ],
+      "expectedResult": "Products page should be displayed after successful login"
+    }
+  ]
+}
+```
+
+→ Full example: [`examples/templates/sample-testcases.json`](examples/templates/sample-testcases.json)
+
+### Plain Text (`.txt`) — Easiest for manual QA
+
+Each test case uses `TEST CASE START` / `TEST CASE END` delimiters. Steps are pipe-delimited: `STEP: <order>|<action>|<target>|<value>`.
+
+```
+TEST CASE START
+ID: TC-001
+NAME: Login with valid credentials
+DESCRIPTION: Verify that a user can log in with correct credentials
+STEP: 1|navigate|https://www.saucedemo.com|
+STEP: 2|enter|Username field|standard_user
+STEP: 3|enter|Password field|secret_sauce
+STEP: 4|click|Login button|
+STEP: 5|verifyVisible|Products page|
+TEST CASE END
+```
+
+→ Full example: [`examples/templates/sample-testcases.txt`](examples/templates/sample-testcases.txt)
+
+### Gherkin / BDD (`.feature`) — For BDD teams
+
+Standard Cucumber/Gherkin format using `Feature`, `Scenario`, and `Given/When/And/Then` keywords.
+
+```gherkin
+Feature: SauceDemo Login
+
+  Scenario: Login with valid credentials
+    Given I open "https://www.saucedemo.com"
+    When I enter "standard_user" in the Username field
+    And I enter "secret_sauce" in the Password field
+    And I click the Login button
+    Then the Products page should be visible
+```
+
+→ Full example: [`examples/templates/sample-testcases.feature`](examples/templates/sample-testcases.feature)
+
+### Excel (`.xlsx`) — Coming in Phase 2
+
+Excel upload is planned for Phase 2. See [`examples/templates/sample-testcases.xlsx-info.md`](examples/templates/sample-testcases.xlsx-info.md) for the expected column layout.
+
+---
+
+### Plain Text (`.txt`) — legacy format reference
 
 ```
 Test Case: Login with valid credentials

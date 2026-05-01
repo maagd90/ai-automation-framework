@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { PlayIcon, AlertCircleIcon } from 'lucide-react';
+import { PlayIcon, AlertCircleIcon, DownloadIcon } from 'lucide-react';
 import axios from 'axios';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
@@ -158,6 +158,45 @@ export default function DashboardPage() {
               Test Case File <span className="text-red-500">*</span>
             </label>
             <FileUpload onFileSelect={setFile} />
+            {/* Download sample files */}
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-xs font-medium text-gray-600 mb-2 flex items-center gap-1">
+                <DownloadIcon className="w-3 h-3" />
+                Download sample files to get started:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/templates/sample-testcases.json"
+                  download="sample-testcases.json"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  JSON Sample
+                </a>
+                <a
+                  href="/templates/sample-testcases.txt"
+                  download="sample-testcases.txt"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  TXT Sample
+                </a>
+                <a
+                  href="/templates/sample-testcases.feature"
+                  download="sample-testcases.feature"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  Feature Sample
+                </a>
+                <span
+                  title="Excel upload is planned for Phase 2"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+                >
+                  Excel — Coming Soon
+                </span>
+              </div>
+            </div>
           </div>
 
           <UrlInput value={url} onChange={setUrl} />

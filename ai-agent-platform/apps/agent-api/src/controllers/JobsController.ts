@@ -113,7 +113,7 @@ export class JobsController {
       // Safe to unlink: uploadedPath already confirmed to be inside TEMP_DIR
       if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
       logger.warn('File type not allowed', { requestId, fileExtension: ext });
-      res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}` });
+      res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}. See examples/templates/sample-testcases.json for a working example.` });
       return;
     }
 
