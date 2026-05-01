@@ -296,7 +296,7 @@ JSON gives the AI agent the most structure to work with and produces the most ac
         { "order": 4, "action": "click", "target": "Login button" },
         { "order": 5, "action": "verifyVisible", "target": "Products page" }
       ],
-      "expectedResult": "Products page should be displayed after successful login"
+      "expectedResults": ["Products page should be displayed after successful login"]
     }
   ]
 }
