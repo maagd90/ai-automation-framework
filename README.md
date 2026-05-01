@@ -346,48 +346,6 @@ Excel upload is planned for Phase 2. See [`examples/templates/sample-testcases.x
 
 ---
 
-### Plain Text (`.txt`) — legacy format reference
-
-```
-Test Case: Login with valid credentials
-Precondition: User is on login page
-Steps:
-1. Enter "admin@test.com" into Email field
-2. Enter "Password123" into Password field
-3. Click Login button
-Expected Result:
-User should be redirected to Dashboard page
-```
-
-### JSON (`.json`)
-
-```json
-{
-  "name": "Login with valid credentials",
-  "preconditions": ["User is on login page"],
-  "steps": [
-    { "order": 1, "action": "enter", "value": "admin@test.com", "target": "Email field" },
-    { "order": 2, "action": "enter", "value": "Password123", "target": "Password field" },
-    { "order": 3, "action": "click", "target": "Login button" }
-  ],
-  "expectedResults": ["User should be redirected to Dashboard page"]
-}
-```
-
-### Gherkin (`.feature`)
-
-```gherkin
-Feature: User Authentication
-Scenario: Login with valid credentials
-  Given User is on the login page
-  When Enter "admin@test.com" into Email field
-  And Enter "Password123" into Password field
-  And Click the Login button
-  Then Verify Dashboard is visible
-```
-
----
-
 ## Generated Output
 
 The downloaded ZIP contains a complete Playwright TypeScript project:

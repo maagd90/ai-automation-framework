@@ -12,7 +12,6 @@
         { "order": 4, "action": "click", "target": "Login button" },
         { "order": 5, "action": "verifyVisible", "target": "Products page" }
       ],
-      "expectedResult": "Products page should be displayed after successful login",
       "expectedResults": [
         "Products page should be displayed after successful login"
       ]
@@ -28,7 +27,6 @@
         { "order": 4, "action": "click", "target": "Login button" },
         { "order": 5, "action": "verifyText", "target": "error message", "value": "Username and password do not match" }
       ],
-      "expectedResult": "Error message should appear indicating invalid credentials",
       "expectedResults": [
         "Error message should appear indicating invalid credentials"
       ]
@@ -48,7 +46,6 @@
         { "order": 5, "action": "click", "target": "Add to cart button for first product" },
         { "order": 6, "action": "verifyText", "target": "cart badge", "value": "1" }
       ],
-      "expectedResult": "Cart badge should display count of 1",
       "expectedResults": [
         "Cart badge should display count of 1"
       ]
