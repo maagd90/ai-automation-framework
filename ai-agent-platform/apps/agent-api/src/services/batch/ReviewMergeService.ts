@@ -577,14 +577,73 @@ export class ReviewMergeService {
    *
    * @throws Error if tsc reports any diagnostics.
    */
+  /**
+   * Creates a temporary `node_modules` symlink inside `finalDir` pointing to the
+   * platform's `node_modules` so TypeScript and Playwright can resolve packages
+   * (e.g. `@playwright/test`) without a full `npm install` in the generated project.
+   *
+   * Returns `true` if the symlink was successfully created so the caller can remove
+   * it in a `finally` block.  Returns `false` if `node_modules` already exists (real
+   * directory installed via `INSTALL_GENERATED_PROJECT_DEPS=true`) or if symlink
+   * creation fails (non-fatal; a warning is logged instead).
+   */
+  private createNodeModulesLink(finalDir: string): boolean {
+    const linkPath = path.join(finalDir, 'node_modules');
+    if (fs.existsSync(linkPath)) {
+      // Already exists (real install or a leftover symlink) – leave it alone.
+      return false;
+    }
+    const target = path.join(REPO_ROOT_DIR, 'node_modules');
+    try {
+      fs.symlinkSync(target, linkPath, 'dir');
+      logger.info('[ReviewMerge] Created node_modules symlink for platform runtime', {
+        linkPath,
+        target,
+      });
+      return true;
+    } catch (err: unknown) {
+      logger.warn('[ReviewMerge] Could not create node_modules symlink (non-fatal)', {
+        linkPath,
+        target,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Removes the temporary `node_modules` symlink created by `createNodeModulesLink`.
+   * Only removes it if it is a symbolic link (never removes a real directory).
+   */
+  private removeNodeModulesLink(finalDir: string): void {
+    const linkPath = path.join(finalDir, 'node_modules');
+    try {
+      const stat = fs.lstatSync(linkPath);
+      if (stat.isSymbolicLink()) {
+        fs.unlinkSync(linkPath);
+        logger.info('[ReviewMerge] Removed temporary node_modules symlink', { linkPath });
+      }
+    } catch {
+      // Path doesn't exist or stat failed – nothing to clean up.
+    }
+  }
+
   private runTscValidation(finalDir: string): void {
+    // When INSTALL_GENERATED_PROJECT_DEPS=false the generated project has no
+    // node_modules of its own.  TypeScript's module resolution walks the directory
+    // tree upward from the source files; because the project lives under /tmp it
+    // never reaches REPO_ROOT_DIR/node_modules.  We create a temporary symlink
+    // final-project/node_modules -> REPO_ROOT_DIR/node_modules so that tsc (and
+    // Playwright) can resolve @playwright/test without a full npm install.
+    const symlinkCreated =
+      !runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS && this.createNodeModulesLink(finalDir);
+
     try {
       const { execSync, execFileSync } = require('child_process') as typeof import('child_process');
       const tsConfigPath = path.join(finalDir, 'tsconfig.json');
 
       if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
-        // Resolve tsc from the platform node_modules so we don't need the
-        // generated project to have its own node_modules installed.
+        // Resolve tsc from the platform node_modules.
         const platformTsc = path.join(REPO_ROOT_DIR, 'node_modules', '.bin', 'tsc');
         let tscBin: string;
         if (fs.existsSync(platformTsc)) {
@@ -599,9 +658,11 @@ export class ReviewMergeService {
           tscBin,
           tsConfigPath,
         });
+        // Run from finalDir so TypeScript resolves node_modules relative to the project
+        // (which now has the symlink pointing at the platform's node_modules).
         // Use execFileSync with an explicit args array to avoid shell metacharacter injection.
         execFileSync(tscBin, ['--noEmit', '--project', tsConfigPath, '--skipLibCheck'], {
-          cwd: REPO_ROOT_DIR,
+          cwd: finalDir,
           stdio: 'pipe',
           timeout: 30_000,
         });
@@ -623,6 +684,11 @@ export class ReviewMergeService {
       throw new Error(
         `Generated project TypeScript validation failed. The spec files contain syntax errors:\n${output.slice(0, MAX_TSC_ERROR_OUTPUT_LENGTH)}`,
       );
+    } finally {
+      // Always remove the temporary symlink so it isn't included in the ZIP.
+      if (symlinkCreated) {
+        this.removeNodeModulesLink(finalDir);
+      }
     }
   }
 
