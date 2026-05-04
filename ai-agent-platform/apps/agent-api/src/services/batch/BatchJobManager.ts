@@ -3,7 +3,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary, FailureAnalysis } from '@ai-agent/shared-types';
 import { AiPromptService, AiProviderFactory, TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter, FeaturePartitioner } from '@ai-agent/agent-core';
-import { JOBS_BASE_DIR, REPO_ROOT_DIR } from '../../config';
+import { JOBS_BASE_DIR, PLATFORM_BASE_DIR, REPO_ROOT_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
@@ -12,6 +12,7 @@ import { runtimeResourceService } from '../RuntimeResourceService';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ReviewMergeService } from './ReviewMergeService';
 import { BatchReportService } from './BatchReportService';
+import { createNodeModulesLink, removeNodeModulesLink } from './FinalProjectRuntimeLinker';
 import { logger } from '../../utils/logger';
 
 /**
@@ -214,17 +215,35 @@ export class BatchJobManager {
       let failureAnalysis: FailureAnalysis | undefined;
       if (job.executionMode === 'generate-and-execute') {
         log('Execution mode: Generate + Execute — running Playwright tests…');
-        const testResult = await this.runPlaywright(finalDir, log);
-        testRunExitCode = testResult.exitCode;
-        testRunStdout = testResult.stdout;
-        if (testRunExitCode !== 0) {
-          failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
+
+        // Create node_modules symlink so generated specs can resolve @playwright/test
+        // and allure-playwright without a full npm install in the generated project.
+        const playwrightSymlinkCreated =
+          !runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS && createNodeModulesLink(finalDir);
+        try {
+          const testResult = await this.runPlaywright(finalDir, log);
+          testRunExitCode = testResult.exitCode;
+          testRunStdout = testResult.stdout;
+          if (testRunExitCode !== 0) {
+            failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
+          }
+          log(`Playwright exit code: ${testRunExitCode}`);
+        } finally {
+          if (playwrightSymlinkCreated) removeNodeModulesLink(finalDir);
         }
-        log(`Playwright exit code: ${testRunExitCode}`);
 
         // ── Allure report generation (non-blocking) ────────────────────────
-        await this.generateAllureReport(finalDir, log);
+        const allureSymlinkCreated =
+          !runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS && createNodeModulesLink(finalDir);
+        try {
+          await this.generateAllureReport(finalDir, log);
+        } finally {
+          if (allureSymlinkCreated) removeNodeModulesLink(finalDir);
+        }
       }
+
+      // Ensure no stale symlink ends up in the ZIP (defensive cleanup).
+      removeNodeModulesLink(finalDir);
 
       // ── Report ────────────────────────────────────────────────────────────
       const aiUsage = this.buildAiUsageSummary(aiConfig, childResults, failureAnalysis !== undefined);
@@ -287,9 +306,15 @@ export class BatchJobManager {
   /**
    * Attempts to generate an Allure HTML report from the allure-results directory.
    *
-   * Runs `npx allure generate allure-results --clean -o allure-report` in the project directory.
-   * This step is non-blocking: if Allure is unavailable or the command fails, a warning
-   * is logged and the job continues normally.
+   * When INSTALL_GENERATED_PROJECT_DEPS=false, the platform's pre-installed allure
+   * CLI binary is used (resolved from REPO_ROOT_DIR or PLATFORM_BASE_DIR node_modules)
+   * so that the generated project does not need its own `npm install`.
+   *
+   * When INSTALL_GENERATED_PROJECT_DEPS=true, `npx allure` is used inside the
+   * generated project directory which has its own allure-commandline installed.
+   *
+   * This step is non-blocking: if Allure is unavailable or the command fails, a
+   * warning is logged and the job continues normally.
    *
    * @param projectDir - Absolute path to the final project directory.
    * @param log - Log function that writes timestamped entries to the job log.
@@ -304,11 +329,34 @@ export class BatchJobManager {
       return Promise.resolve();
     }
 
+    // Resolve the allure binary. Prefer the platform's pre-installed binary so we
+    // do not depend on npx fetching it at runtime when INSTALL_GENERATED_PROJECT_DEPS=false.
+    let allureBin: string;
+    let allureArgs: string[];
+    if (!runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS) {
+      // Check platform monorepo node_modules first, then repo-root node_modules.
+      const platformBin = path.join(PLATFORM_BASE_DIR, 'node_modules', '.bin', 'allure');
+      const rootBin = path.join(REPO_ROOT_DIR, 'node_modules', '.bin', 'allure');
+      if (fs.existsSync(platformBin)) {
+        allureBin = platformBin;
+      } else if (fs.existsSync(rootBin)) {
+        allureBin = rootBin;
+      } else {
+        log('[Allure] WARNING: platform allure binary not found — skipping Allure HTML generation');
+        logger.warn('[Allure] Platform allure binary not found (non-blocking)', { platformBin, rootBin });
+        return Promise.resolve();
+      }
+      allureArgs = ['generate', 'allure-results', '--clean', '-o', 'allure-report'];
+    } else {
+      allureBin = 'npx';
+      allureArgs = ['allure', 'generate', 'allure-results', '--clean', '-o', 'allure-report'];
+    }
+
     return new Promise<void>((resolve) => {
       log('[Allure] Generating Allure HTML report…');
       const allureChild = spawn(
-        'npx',
-        ['allure', 'generate', 'allure-results', '--clean', '-o', 'allure-report'],
+        allureBin,
+        allureArgs,
         {
           cwd: projectDir,
           shell: false,

@@ -6,6 +6,22 @@ import { JOBS_BASE_DIR } from '../config';
 
 const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
 
+/**
+ * Top-level names (relative to the archived directory root) that must never
+ * appear in the downloaded ZIP.  These are runtime or dependency artefacts
+ * that are either too large or meaningless outside the Docker container.
+ *
+ * Note: allure-results/ and allure-report/ are intentionally NOT excluded so
+ * that users receive the Allure output when generate-and-execute is used.
+ */
+const ZIP_EXCLUDED_TOP_LEVEL = new Set([
+  'node_modules',
+  'test-results',
+  'playwright-report',
+]);
+
+const ZIP_EXCLUDED_FILES = new Set(['.last-run.json']);
+
 export class ZipService {
   streamZip(dirPath: string, jobId: string, res: Response, onSuccess?: () => void): void {
     res.setHeader('Content-Type', 'application/zip');
@@ -27,7 +43,13 @@ export class ZipService {
     });
 
     archive.pipe(res);
-    archive.directory(dirPath, false);
+    archive.directory(dirPath, false, (entry) => {
+      // entry.name is the path relative to dirPath, using forward slashes on all platforms.
+      const topLevel = entry.name.split('/')[0];
+      if (ZIP_EXCLUDED_TOP_LEVEL.has(topLevel)) return false;
+      if (ZIP_EXCLUDED_FILES.has(topLevel)) return false;
+      return entry;
+    });
     void archive.finalize();
   }
 
