@@ -47,7 +47,7 @@ export class ZipService {
       // entry.name is the path relative to dirPath, using forward slashes on all platforms.
       const topLevel = entry.name.split('/')[0];
       if (ZIP_EXCLUDED_TOP_LEVEL.has(topLevel)) return false;
-      if (ZIP_EXCLUDED_FILES.has(topLevel)) return false;
+      if (ZIP_EXCLUDED_FILES.has(entry.name)) return false;
       return entry;
     });
     void archive.finalize();
