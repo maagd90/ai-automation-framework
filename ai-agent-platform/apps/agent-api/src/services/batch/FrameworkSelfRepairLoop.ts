@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 const DEFAULT_MAX_REPAIR_ATTEMPTS = 3;
+// Matches a full async page-object method block, including its multi-line body,
+// so duplicate generated methods can be removed deterministically.
 const PAGE_METHOD_BLOCK_PATTERN = /^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{[\s\S]*?^\s+\}/gm;
+// Matches a full Playwright test(...) block across multiple lines so duplicate
+// titles can be removed without reparsing the whole spec AST.
 const SPEC_TEST_BLOCK_PATTERN = /^test\((["'`])([\s\S]*?)\1,[\s\S]*?^\s*\}\);?/gm;
 
 export class FrameworkSelfRepairLoop {

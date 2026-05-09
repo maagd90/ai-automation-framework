@@ -37,12 +37,12 @@ export class LocatorCandidateBuilder {
       });
     }
 
-    const accessibleText = element.accessibleName || element.text;
+    const displayText = element.accessibleName || element.text;
 
-    if (accessibleText && this.isSemanticTag(element.tagName)) {
+    if (displayText && this.isSemanticTag(element.tagName)) {
       candidates.push({
         strategy: 'getByRole',
-        value: JSON.stringify({ role, name: accessibleText }),
+        value: JSON.stringify({ role, name: displayText }),
         score: 0,
         validated: false,
         unique: false,
@@ -79,10 +79,10 @@ export class LocatorCandidateBuilder {
       });
     }
 
-    if (accessibleText && accessibleText.length <= 50) {
+    if (displayText && displayText.length <= 50) {
       candidates.push({
         strategy: 'getByText',
-        value: accessibleText,
+        value: displayText,
         score: 0,
         validated: false,
         unique: false,

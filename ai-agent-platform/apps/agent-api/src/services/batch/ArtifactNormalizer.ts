@@ -116,7 +116,7 @@ export class ArtifactNormalizer {
       if (!entry.endsWith('.ts')) continue;
       const source = fs.readFileSync(path.join(pagesDir, entry), 'utf8');
       const classMatch = source.match(/export class (\w+)\s*\{/);
-      if (!classMatch) continue;
+      if (!classMatch?.[1]) continue;
       const className = classMatch[1];
       const feature = featureKeyFromClassName(className);
       const routePath = source.match(/await this\.page\.goto\((['"`])(.*?)\1\)/)?.[2] ?? '/';

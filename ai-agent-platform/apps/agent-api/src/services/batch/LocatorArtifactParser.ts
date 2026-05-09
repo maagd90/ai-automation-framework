@@ -77,7 +77,7 @@ export class LocatorArtifactParser {
         steps?: LegacyLocatorStep[];
       };
 
-      const feature = (parsed.feature || parsed.page || path.basename(filePath).replace(/\.(locators\.)?json$/, '')).toLowerCase();
+      const feature = this.extractFeatureName(filePath, parsed.feature, parsed.page);
       if (Array.isArray(parsed.locators)) {
         return {
           feature,
@@ -120,5 +120,9 @@ export class LocatorArtifactParser {
           confidenceScore: Math.max(0, Math.min(1, (candidate.score ?? 0) / 100)),
         })),
     };
+  }
+
+  private extractFeatureName(filePath: string, explicitFeature?: string, pageName?: string): string {
+    return (explicitFeature || pageName || path.basename(filePath).replace(/\.(locators\.)?json$/, '')).toLowerCase();
   }
 }
