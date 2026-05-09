@@ -3,6 +3,8 @@ import type { LocatorResult } from '../domain/LocatorResult.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { CredentialFieldClassifier } from './CredentialFieldClassifier.js';
 
+const INVALID_SCENARIO_PATTERN = /\b(invalid|wrong|incorrect|fail(s|ed)?|error|locked|denied|unauthorized)\b/;
+
 export interface BuiltTestDataModel {
   data: Record<string, unknown>;
   referencesByStepOrder: Map<number, string>;
@@ -69,6 +71,6 @@ export class TestDataModelBuilder {
     ]
       .join(' ')
       .toLowerCase();
-    return /\b(invalid|wrong|incorrect|fail(s|ed)?|error|locked|denied|unauthorized)\b/.test(combined);
+    return INVALID_SCENARIO_PATTERN.test(combined);
   }
 }

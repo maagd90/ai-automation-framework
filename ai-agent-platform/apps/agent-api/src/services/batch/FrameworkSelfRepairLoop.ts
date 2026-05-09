@@ -1,8 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 
+const DEFAULT_MAX_REPAIR_ATTEMPTS = 3;
+const PAGE_METHOD_BLOCK_PATTERN = /^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{[\s\S]*?^\s+\}/gm;
+const SPEC_TEST_BLOCK_PATTERN = /^test\((["'`])([\s\S]*?)\1,[\s\S]*?^\s*\}\);?/gm;
+
 export class FrameworkSelfRepairLoop {
-  run(finalDir: string, validate: () => void, maxAttempts = 3): void {
+  run(finalDir: string, validate: () => void, maxAttempts = DEFAULT_MAX_REPAIR_ATTEMPTS): void {
     let attempt = 0;
     let lastError: unknown;
 
@@ -41,7 +45,7 @@ export class FrameworkSelfRepairLoop {
       const pagePath = path.join(pagesDir, file);
       const source = fs.readFileSync(pagePath, 'utf8');
       const seen = new Set<string>();
-      const next = source.replace(/^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{[\s\S]*?^\s+\}/gm, (block, name: string) => {
+      const next = source.replace(PAGE_METHOD_BLOCK_PATTERN, (block, name: string) => {
         if (seen.has(name)) {
           changed = true;
           return '';
@@ -65,7 +69,7 @@ export class FrameworkSelfRepairLoop {
       const specPath = path.join(testsDir, file);
       const source = fs.readFileSync(specPath, 'utf8');
       const seen = new Set<string>();
-      const next = source.replace(/^test\((["'`])([\s\S]*?)\1,[\s\S]*?^\s*\}\);?/gm, (block, _quote: string, title: string) => {
+      const next = source.replace(SPEC_TEST_BLOCK_PATTERN, (block, _quote: string, title: string) => {
         if (seen.has(title)) {
           changed = true;
           return '';

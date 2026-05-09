@@ -29,6 +29,8 @@ export interface NormalizedArtifact {
 }
 
 function featureKeyFromClassName(className: string): string {
+  // Convert PascalCase page names (e.g. LoginPage) into the canonical feature
+  // key used by the merge pipeline (login).
   return className.replace(/Page$/, '').replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase() || 'home';
 }
 
