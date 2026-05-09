@@ -211,7 +211,7 @@ function extractLocatorStrategy(methodBody: string): string {
  *  - goto() is excluded from the methods list (re-generated later).
  */
 function parsePomSource(source: string): ParsedPom | null {
-  const classMatch = source.match(/export class ([A-Z][A-Za-z0-9]*)\s*\{/);
+  const classMatch = source.match(/export class ([A-Z][A-Za-z0-9_]*)\s*\{/);
   if (!classMatch) return null;
   const className = classMatch[1];
   const featureKey = classNameToFeatureKey(className);
@@ -1058,7 +1058,7 @@ export class ReviewMergeService {
       if (!matchedLocator) return undefined;
       const locatorExpression = matchedLocator.selector.startsWith('this.page.')
         ? matchedLocator.selector
-        : matchedLocator.selector.replace(/\bpage\./g, 'this.page.');
+        : matchedLocator.selector.replace(/^page\./, 'this.page.');
       const baseField = this.toLocatorFieldName(matchedLocator.name || fallbackName);
       return reserveField(baseField, locatorExpression, `${matchedLocator.name ?? ''} ${matchedLocator.target ?? ''}`.toLowerCase());
     };
@@ -1204,7 +1204,9 @@ ${uniqueBlocks.join('\n\n')}
     };
 
     let rewritten = body.replaceAll(oldDataVar, newDataVar);
-    rewritten = rewritten.replace(/^\s*const \w+\s*=\s*new\s+\w+\(page\);\s*$/gm, '').replace(/\n{3,}/g, '\n\n');
+    rewritten = rewritten
+      .replace(/^\s*const\s+\w+\s*=\s*new\s+\w+\s*\(\s*page\s*\)\s*;?\s*(?:\/\/.*)?$/gm, '')
+      .replace(/\n{3,}/g, '\n\n');
 
     rewritten = rewritten.replace(/await\s+(\w+)\.(\w+)\(/g, (full, _pageVar: string, methodName: string) => {
       const className = methodOwnership.get(methodName);
