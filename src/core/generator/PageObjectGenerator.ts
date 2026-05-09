@@ -9,6 +9,8 @@ export interface GeneratedPageMethod {
   name: string;
   action: LocatorResult['action'];
   locatorStrategy: string;
+  locatorField: string;
+  locatorExpression: string;
   body: string;
 }
 
@@ -43,23 +45,23 @@ export class PageObjectGenerator {
     const routePath = this.resolveRoutePath(url);
     const methods = locators
       .filter((locator) => !this.isPreconditionStep(locator.stepTarget))
-      .map((locator) => ({
-        name: locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget),
-        action: locator.action,
-        locatorStrategy: locator.primaryLocator.strategy,
-        body: this.renderMethod(locator),
-      }));
+      .map((locator) => this.buildMethod(locator));
 
     return { pageName, className, routePath, methods };
   }
 
   render(model: GeneratedPageModel): string {
+    const locatorFields = model.methods
+      .map((method) => `  private readonly ${method.locatorField} = ${method.locatorExpression};`)
+      .join('\n');
     const methods = model.methods.map((method) => method.body).join('\n\n');
     return `import { type Page } from '@playwright/test';
 import { waitForPageLoad } from '../utils/wait.util';
 
 export class ${model.className} {
   constructor(private readonly page: Page) {}
+
+${locatorFields}
 
 ${methods}
 
@@ -71,28 +73,46 @@ ${methods}
 `;
   }
 
-  private renderMethod(locator: LocatorResult): string {
-    const methodName = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
-    const locatorExpr = this.renderLocatorExpression(locator.primaryLocator);
+  private buildMethod(locator: LocatorResult): GeneratedPageMethod {
+    const name = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
+    const locatorExpression = this.renderLocatorExpression(locator.primaryLocator);
+    const locatorField = this.resolveLocatorFieldName(name);
+    return {
+      name,
+      action: locator.action,
+      locatorStrategy: locator.primaryLocator.strategy,
+      locatorField,
+      locatorExpression,
+      body: this.renderMethod(name, locator.action, locatorField),
+    };
+  }
 
-    switch (locator.action) {
+  private renderMethod(methodName: string, action: LocatorResult['action'], locatorField: string): string {
+    switch (action) {
       case 'enter':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.fill(value);\n  }`;
+        return `  async ${methodName}(value: string): Promise<void> {\n    await this.${locatorField}.fill(value);\n  }`;
       case 'click':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.click();\n  }`;
       case 'verifyVisible':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.waitFor({ state: 'visible' });\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.waitFor({ state: 'visible' });\n  }`;
       case 'verifyText':
-        return `  async ${methodName}(): Promise<string> {\n    return (await ${locatorExpr}.innerText()).trim();\n  }`;
+        return `  async ${methodName}(): Promise<string> {\n    return (await this.${locatorField}.innerText()).trim();\n  }`;
       case 'select':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.selectOption(value);\n  }`;
+        return `  async ${methodName}(value: string): Promise<void> {\n    await this.${locatorField}.selectOption(value);\n  }`;
       case 'check':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.check();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.check();\n  }`;
       case 'uncheck':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.uncheck();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.uncheck();\n  }`;
       default:
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.click();\n  }`;
     }
+  }
+
+  private resolveLocatorFieldName(methodName: string): string {
+    const stripped = methodName
+      .replace(/^(enter|click|select|check|uncheck|verify|get|set)/i, '')
+      .replace(/(Visible|Text|Value)$/i, '');
+    return `${StringUtils.toCamelCase(stripped || methodName)}Locator`;
   }
 
   private renderLocatorExpression(candidate: LocatorCandidate): string {

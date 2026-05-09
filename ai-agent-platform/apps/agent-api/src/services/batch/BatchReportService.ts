@@ -64,18 +64,34 @@ export class BatchReportService {
     executionMode?: ExecutionMode;
     testRunExitCode?: number;
     testRunStdout?: string;
+    allure?: {
+      configured: boolean;
+      resultsGenerated: boolean;
+      reportGenerated: boolean;
+    };
     aiUsage?: AiUsageSummary;
     failureAnalysis?: FailureAnalysis;
   }): BatchReport {
-    const { startedAt, childResults, parallelAgents, executionMode, testRunExitCode, testRunStdout, aiUsage, failureAnalysis } = params;
+    const {
+      startedAt,
+      childResults,
+      parallelAgents,
+      executionMode,
+      testRunExitCode,
+      testRunStdout,
+      allure,
+      aiUsage,
+      failureAnalysis,
+    } = params;
     const totalCases = childResults.length;
     const generationPassed = childResults.filter((r) => r.exitCode === 0).length;
     const generationFailed = totalCases - generationPassed;
     const durationMs = Date.now() - startedAt;
 
     // In generate-and-execute mode, test run exit code also contributes to overall status
-    const executionFailed =
-      executionMode === 'generate-and-execute' && (testRunExitCode ?? 0) !== 0;
+    const executionEnabled = executionMode === 'generate-and-execute';
+    const executionExitCode = executionEnabled ? (testRunExitCode ?? 1) : 0;
+    const executionFailed = executionEnabled && executionExitCode !== 0;
 
     let status: BatchReport['status'];
     if (generationFailed === 0 && !executionFailed) {
@@ -87,10 +103,12 @@ export class BatchReportService {
     }
 
     // Parse Playwright execution test counts from stdout when available.
-    const playwrightCounts =
-      executionMode === 'generate-and-execute' && testRunStdout
-        ? parsePlaywrightCounts(testRunStdout)
-        : null;
+    const playwrightCounts = executionEnabled && testRunStdout
+      ? parsePlaywrightCounts(testRunStdout)
+      : null;
+    const executionPassedCount = playwrightCounts?.passed ?? (executionEnabled && !executionFailed ? totalCases : 0);
+    const executionFailedCount = playwrightCounts?.failed ?? (executionEnabled && executionFailed ? totalCases : 0);
+    const executionTotalCount = playwrightCounts?.total ?? (executionEnabled ? totalCases : 0);
 
     let summary: string;
     if (status === 'passed') {
@@ -110,6 +128,23 @@ export class BatchReportService {
     const report: BatchReport = {
       status,
       executionMode,
+      generation: {
+        total: totalCases,
+        passed: generationPassed,
+        failed: generationFailed,
+      },
+      execution: {
+        enabled: executionEnabled,
+        total: executionTotalCount,
+        passed: executionPassedCount,
+        failed: executionFailedCount,
+        exitCode: executionExitCode,
+      },
+      allure: {
+        configured: allure?.configured ?? true,
+        resultsGenerated: allure?.resultsGenerated ?? false,
+        reportGenerated: allure?.reportGenerated ?? false,
+      },
       totalCases,
       passed: generationPassed,
       failed: generationFailed,
@@ -120,10 +155,10 @@ export class BatchReportService {
       summary,
     };
 
-    if (playwrightCounts) {
-      report.testsTotal = playwrightCounts.total;
-      report.testsPassed = playwrightCounts.passed;
-      report.testsFailed = playwrightCounts.failed;
+    if (executionEnabled) {
+      report.testsTotal = executionTotalCount;
+      report.testsPassed = executionPassedCount;
+      report.testsFailed = executionFailedCount;
     }
 
     return report;

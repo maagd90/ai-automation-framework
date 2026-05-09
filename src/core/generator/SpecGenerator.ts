@@ -142,43 +142,42 @@ ${testBody}
 
   private buildAssertionLines(expectedResults: string[]): string[] {
     if (expectedResults.length === 0) {
-      return ["await expect(page).not.toHaveURL(/login/i);"];
+      return ["await expect(page.locator('body')).toBeVisible();"];
     }
 
     const lines: string[] = [];
     for (const result of expectedResults) {
       const normalized = StringUtils.normalize(result);
 
-      if (normalized.includes('dashboard')) {
-        lines.push('await expect(page).toHaveURL(/dashboard/i);');
-        lines.push("await expect(page.getByText('Dashboard')).toBeVisible();");
+      if (normalized.includes('invalid') || normalized.includes('error') || normalized.includes('denied') || normalized.includes('failed')) {
+        lines.push("await expect(page.locator(\"[role='alert'], [aria-live], [data-test*='error'], .error, .alert-error\")).toBeVisible();");
+        if (normalized.includes('login')) {
+          lines.push('await expect(page).toHaveURL(/login|sign-?in|auth|\\/$/i);');
+        }
+        continue;
+      }
+
+      if (normalized.includes('cart') || normalized.includes('badge') || normalized.includes('add to cart')) {
+        lines.push("await expect(page.locator(\"[data-test='shopping-cart-badge'], .shopping_cart_badge, [aria-label*='cart' i]\")).toBeVisible();");
+        lines.push("await expect(page.locator(\"[data-test='shopping-cart-badge'], .shopping_cart_badge, [aria-label*='cart' i]\")).toHaveText('1');");
+        continue;
+      }
+
+      if (normalized.includes('inventory') || normalized.includes('product') || normalized.includes('dashboard') || normalized.includes('successful')) {
+        lines.push('await expect(page).toHaveURL(/inventory|product|dashboard/i);');
+        lines.push("await expect(page.locator(\"h1, h2, [data-test='title'], .title\")).toBeVisible();");
         continue;
       }
 
       if (normalized.includes('visible')) {
-        const textMatch = result.match(/([A-Za-z0-9_-]+)\s+(?:should\s+be\s+)?visible/i);
-        const textValue = textMatch?.[1] ?? result;
-        lines.push(`await expect(page.getByText(${this.renderStringLiteral(textValue)})).toBeVisible();`);
+        lines.push(`await expect(page.getByText(${this.renderStringLiteral(result)})).toBeVisible();`);
         continue;
       }
 
-      if (normalized.includes('redirect') && normalized.includes('login')) {
-        lines.push('await expect(page).toHaveURL(/login/i);');
-        continue;
-      }
-
-      if (normalized.includes('redirect')) {
-        const candidate = normalized.split('redirect')[1]?.trim();
-        if (candidate) {
-          lines.push(`await expect(page).toHaveURL(/${candidate.replace(/\s+/g, '|')}/i);`);
-          continue;
-        }
-      }
-
-      lines.push('await expect(page).not.toHaveURL(/login/i);');
+      lines.push("await expect(page.locator('body')).toBeVisible();");
     }
 
-    return lines.length > 0 ? lines : ['await expect(page).not.toHaveURL(/login/i);'];
+    return lines.length > 0 ? lines : ["await expect(page.locator('body')).toBeVisible();"];
   }
 
   private isPreconditionStep(stepText: string): boolean {

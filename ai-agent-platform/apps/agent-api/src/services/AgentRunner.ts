@@ -74,6 +74,9 @@ export class AgentRunner {
           job.artifactsPath = outputDir;
           job.report = {
             status: 'passed',
+            generation: { total: 1, passed: 1, failed: 0 },
+            execution: { enabled: false, total: 0, passed: 0, failed: 0, exitCode: 0 },
+            allure: { configured: true, resultsGenerated: false, reportGenerated: false },
             totalCases: 1,
             passed: 1,
             failed: 0,
@@ -87,6 +90,9 @@ export class AgentRunner {
           job.error = `Process exited with code ${code}`;
           job.report = {
             status: 'failed',
+            generation: { total: 1, passed: 0, failed: 1 },
+            execution: { enabled: false, total: 0, passed: 0, failed: 0, exitCode: 1 },
+            allure: { configured: true, resultsGenerated: false, reportGenerated: false },
             totalCases: 1,
             passed: 0,
             failed: 1,

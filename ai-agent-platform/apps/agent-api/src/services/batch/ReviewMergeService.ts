@@ -923,20 +923,52 @@ export class ReviewMergeService {
     }
 
     const methodsBlock = Array.from(methodMap.values())
-      .map((m) => m.body)
-      .join('\n\n');
+      .map((m) => m.body);
 
+    const usedFieldNames = new Set<string>();
+    const locatorFieldLines: string[] = [];
+    const renderedMethods: string[] = methodsBlock.map((methodBody) => {
+      const extraction = this.extractLocatorExpression(methodBody);
+      if (!extraction) return methodBody;
+
+      const baseField = this.toLocatorFieldName(extraction.methodNameHint);
+      let fieldName = baseField;
+      let index = 2;
+      while (usedFieldNames.has(fieldName)) {
+        fieldName = `${baseField}${index++}`;
+      }
+      usedFieldNames.add(fieldName);
+      locatorFieldLines.push(`  private readonly ${fieldName} = ${extraction.locatorExpression};`);
+      return methodBody.replace(extraction.locatorExpression, `this.${fieldName}`);
+    });
+
+    const methodNames = Array.from(methodMap.keys());
+    if (
+      methodNames.includes('enterUsername')
+      && methodNames.includes('enterPassword')
+      && methodNames.includes('clickLogin')
+      && !methodNames.includes('login')
+    ) {
+      renderedMethods.push(`  async login(username: string, password: string): Promise<void> {
+    await this.enterUsername(username);
+    await this.enterPassword(password);
+    await this.clickLogin();
+  }`);
+    }
+
+    const fieldsBlock = locatorFieldLines.length > 0 ? `${locatorFieldLines.join('\n')}\n\n` : '';
     const file = `import { type Page } from '@playwright/test';
-import { waitForPageLoad } from '../utils/wait.util';
+import { BasePage } from './BasePage';
 
-export class ${className} {
-  constructor(private readonly page: Page) {}
+export class ${className} extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
 
-${methodsBlock}
+${fieldsBlock}${renderedMethods.join('\n\n')}
 
   async goto(): Promise<void> {
-    await this.page.goto(${JSON.stringify(routePath)});
-    await waitForPageLoad(this.page);
+    await this.gotoPath(${JSON.stringify(routePath)});
   }
 }
 `;
@@ -1066,7 +1098,7 @@ export default defineConfig({
     ['allure-playwright'],
   ],
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:4000',
+    baseURL: process.env.BASE_URL || ${JSON.stringify(job.url)},
     headless: ${job.headless},
     screenshot: ${screenshot},
     trace: ${trace},
@@ -1100,6 +1132,20 @@ export default defineConfig({
       'utf8',
     );
 
+    const basePage = `import { type Page } from '@playwright/test';
+import { waitForPageLoad } from '../utils/wait.util';
+
+export abstract class BasePage {
+  protected constructor(protected readonly page: Page) {}
+
+  protected async gotoPath(pathname: string): Promise<void> {
+    await this.page.goto(pathname);
+    await waitForPageLoad(this.page);
+  }
+}
+`;
+    fs.writeFileSync(path.join(finalDir, 'src', 'pages', 'BasePage.ts'), basePage, 'utf8');
+
     const waitUtil = `import type { Page } from '@playwright/test';
 
 export async function waitForPageLoad(page: Page): Promise<void> {
@@ -1122,7 +1168,7 @@ npx playwright install
 ## Run Tests
 
 \`\`\`bash
-BASE_URL=http://localhost:4000 npx playwright test
+BASE_URL=${job.url} npm test
 \`\`\`
 
 ## View Playwright HTML Report
@@ -1225,5 +1271,22 @@ Allure results are generated under \`allure-results/\` and the HTML report under
   private resolveSubdir(srcDir: string, section: string): string {
     const srcBased = path.join(srcDir, 'src', section);
     return fs.existsSync(srcBased) ? srcBased : path.join(srcDir, section);
+  }
+
+  private extractLocatorExpression(methodBody: string): { locatorExpression: string; methodNameHint: string } | null {
+    const signatureMatch = methodBody.match(/async (\w+)\(/);
+    const methodNameHint = signatureMatch?.[1] ?? 'element';
+    const actionPattern = /await\s+(this\.page\.[\s\S]*?)\.(fill|click|waitFor|selectOption|check|uncheck|innerText)\(/;
+    const match = methodBody.match(actionPattern);
+    if (!match?.[1]) return null;
+    return { locatorExpression: match[1].trim(), methodNameHint };
+  }
+
+  private toLocatorFieldName(methodName: string): string {
+    const stripped = methodName
+      .replace(/^(enter|click|select|check|uncheck|verify|expect|get|set)/i, '')
+      .replace(/(Visible|Text|Value|Field|Button)$/i, '');
+    const base = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    return `${base || 'element'}Locator`;
   }
 }

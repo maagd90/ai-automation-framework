@@ -77,10 +77,34 @@ export interface FailureAnalysis {
 
 export type BatchStatus = 'passed' | 'failed' | 'partial';
 
+export interface GenerationReport {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+export interface ExecutionReport {
+  enabled: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  exitCode: number;
+}
+
+export interface AllureReportStatus {
+  configured: boolean;
+  resultsGenerated: boolean;
+  reportGenerated: boolean;
+}
+
 export interface BatchReport {
   status: BatchStatus;
   /** Execution mode used for this job (for UI display). */
   executionMode?: ExecutionMode;
+  generation: GenerationReport;
+  execution: ExecutionReport;
+  allure: AllureReportStatus;
+  /** Backward compatibility fields. */
   totalCases: number;
   /** Number of test cases successfully generated (= totalCases when all agents succeeded). */
   passed: number;

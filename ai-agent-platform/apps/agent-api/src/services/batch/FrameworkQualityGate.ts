@@ -9,6 +9,16 @@ export interface QualityGateIssue {
 
 export class FrameworkQualityGate {
   private readonly dataValidator = new GeneratedDataReferenceValidator();
+  private readonly forbiddenDirNames = new Set([
+    'node_modules',
+    'test-results',
+    'playwright-report',
+    '.idea',
+    '.vscode',
+    '__MACOSX',
+  ]);
+
+  private readonly forbiddenFileNames = new Set(['.last-run.json', '.DS_Store']);
 
   validate(finalDir: string, runTscValidation: (dir: string) => void): void {
     const issues: QualityGateIssue[] = [];
@@ -22,14 +32,46 @@ export class FrameworkQualityGate {
       }
     }
 
+    this.collectForbiddenArtifacts(finalDir, issues);
+
     if (fs.existsSync(testsDir)) {
       const seenTitles = new Set<string>();
+      const pageMethodsByClass = new Map<string, Set<string>>();
+      if (fs.existsSync(pagesDir)) {
+        for (const pageFile of fs.readdirSync(pagesDir).filter((entry) => entry.endsWith('.ts'))) {
+          const source = fs.readFileSync(path.join(pagesDir, pageFile), 'utf8');
+          const classNameMatch = source.match(/export class (\w+)/);
+          if (!classNameMatch?.[1]) continue;
+          const methods = new Set<string>();
+          for (const methodMatch of source.matchAll(/^\s+async (\w+)\(/gm)) {
+            methods.add(methodMatch[1]);
+          }
+          pageMethodsByClass.set(classNameMatch[1], methods);
+        }
+      }
       for (const file of fs.readdirSync(testsDir).filter((entry) => entry.endsWith('.spec.ts'))) {
         const specPath = path.join(testsDir, file);
         const source = fs.readFileSync(specPath, 'utf8');
+        const pageVarsByClass = new Map<string, string>();
         for (const pageImport of source.matchAll(/from\s+['"]\.\.\/pages\/([^'"]+)['"]/g)) {
           if (!fs.existsSync(path.join(pagesDir, `${pageImport[1]}.ts`))) {
             issues.push({ code: 'missing-page-import', message: `${file} imports missing page ${pageImport[1]}.ts` });
+          }
+        }
+        for (const ctor of source.matchAll(/const (\w+)\s*=\s*new\s+(\w+)\(/g)) {
+          pageVarsByClass.set(ctor[1], ctor[2]);
+        }
+        for (const call of source.matchAll(/await\s+(\w+)\.(\w+)\(/g)) {
+          const pageVar = call[1];
+          const method = call[2];
+          const className = pageVarsByClass.get(pageVar);
+          if (!className) continue;
+          const classMethods = pageMethodsByClass.get(className);
+          if (!classMethods || !classMethods.has(method)) {
+            issues.push({
+              code: 'missing-page-method',
+              message: `${file} calls ${className}.${method} but the method does not exist`,
+            });
           }
         }
 
@@ -59,6 +101,18 @@ export class FrameworkQualityGate {
     }
 
     if (fs.existsSync(pagesDir)) {
+      for (const pageFile of fs.readdirSync(pagesDir).filter((entry) => entry.endsWith('Page.ts'))) {
+        if (pageFile === 'BasePage.ts') continue;
+        const feature = pageFile.replace(/Page\.ts$/, '').replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+        const locatorPath = path.join(locatorsDir, `${feature}.locators.json`);
+        if (!fs.existsSync(locatorPath)) {
+          issues.push({
+            code: 'missing-feature-locator-file',
+            message: `Missing locator file for page ${pageFile}: ${locatorPath}`,
+          });
+        }
+      }
+
       for (const file of fs.readdirSync(pagesDir).filter((entry) => entry.endsWith('.ts'))) {
         const source = fs.readFileSync(path.join(pagesDir, file), 'utf8');
         const seenMethods = new Set<string>();
@@ -112,5 +166,36 @@ export class FrameworkQualityGate {
     }
 
     runTscValidation(finalDir);
+  }
+
+  private collectForbiddenArtifacts(finalDir: string, issues: QualityGateIssue[]): void {
+    const walk = (dirPath: string): void => {
+      for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+        const absolute = path.join(dirPath, entry.name);
+        const relative = path.relative(finalDir, absolute);
+        if (!relative || relative.startsWith('..')) continue;
+
+        if (entry.isDirectory()) {
+          if (this.forbiddenDirNames.has(entry.name)) {
+            issues.push({
+              code: 'forbidden-zip-artifact',
+              message: `Forbidden artifact found in generated project: ${relative}`,
+            });
+            continue;
+          }
+          walk(absolute);
+          continue;
+        }
+
+        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml')) {
+          issues.push({
+            code: 'forbidden-zip-artifact',
+            message: `Forbidden artifact found in generated project: ${relative}`,
+          });
+        }
+      }
+    };
+
+    walk(finalDir);
   }
 }

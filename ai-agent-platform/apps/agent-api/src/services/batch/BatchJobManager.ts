@@ -218,6 +218,11 @@ export class BatchJobManager {
       let testRunExitCode = 0;
       let testRunStdout: string | undefined;
       let failureAnalysis: FailureAnalysis | undefined;
+      let allureStatus = {
+        configured: true,
+        resultsGenerated: false,
+        reportGenerated: false,
+      };
       if (job.executionMode === 'generate-and-execute') {
         log('Execution mode: Generate + Execute — running Playwright tests…');
 
@@ -241,7 +246,7 @@ export class BatchJobManager {
         const allureSymlinkCreated =
           !runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS && createNodeModulesLink(finalDir);
         try {
-          await this.generateAllureReport(finalDir, log);
+          allureStatus = await this.generateAllureReport(finalDir, log);
         } finally {
           if (allureSymlinkCreated) removeNodeModulesLink(finalDir);
         }
@@ -260,6 +265,7 @@ export class BatchJobManager {
         executionMode: job.executionMode,
         testRunExitCode,
         testRunStdout,
+        allure: allureStatus,
         aiUsage,
         failureAnalysis,
       });
@@ -289,6 +295,24 @@ export class BatchJobManager {
       job.error = msg;
       job.report = {
         status: 'failed',
+        executionMode: job.executionMode,
+        generation: {
+          total: job.totalCases ?? 0,
+          passed: 0,
+          failed: job.totalCases ?? 0,
+        },
+        execution: {
+          enabled: job.executionMode === 'generate-and-execute',
+          total: 0,
+          passed: 0,
+          failed: 0,
+          exitCode: 1,
+        },
+        allure: {
+          configured: true,
+          resultsGenerated: false,
+          reportGenerated: false,
+        },
         totalCases: job.totalCases ?? 0,
         passed: 0,
         failed: job.totalCases ?? 0,
@@ -327,11 +351,15 @@ export class BatchJobManager {
   private generateAllureReport(
     projectDir: string,
     log: (msg: string) => void,
-  ): Promise<void> {
+  ): Promise<{ configured: boolean; resultsGenerated: boolean; reportGenerated: boolean }> {
     const allureResultsDir = path.join(projectDir, 'allure-results');
     if (!fs.existsSync(allureResultsDir)) {
       log('[Allure] allure-results directory not found — skipping Allure HTML generation');
-      return Promise.resolve();
+      return Promise.resolve({
+        configured: true,
+        resultsGenerated: false,
+        reportGenerated: false,
+      });
     }
 
     // Resolve the allure binary. Prefer the platform's pre-installed binary so we
@@ -349,7 +377,11 @@ export class BatchJobManager {
       } else {
         log('[Allure] WARNING: platform allure binary not found — skipping Allure HTML generation');
         logger.warn('[Allure] Platform allure binary not found (non-blocking)', { platformBin, rootBin });
-        return Promise.resolve();
+        return Promise.resolve({
+          configured: true,
+          resultsGenerated: true,
+          reportGenerated: false,
+        });
       }
       allureArgs = ['generate', 'allure-results', '--clean', '-o', 'allure-report'];
     } else {
@@ -357,7 +389,7 @@ export class BatchJobManager {
       allureArgs = ['allure', 'generate', 'allure-results', '--clean', '-o', 'allure-report'];
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<{ configured: boolean; resultsGenerated: boolean; reportGenerated: boolean }>((resolve) => {
       log('[Allure] Generating Allure HTML report…');
       const allureChild = spawn(
         allureBin,
@@ -381,17 +413,30 @@ export class BatchJobManager {
         if (code === 0) {
           log('[Allure] HTML report generated at allure-report/');
           logger.info('Allure report generated', { projectDir });
+          resolve({
+            configured: true,
+            resultsGenerated: true,
+            reportGenerated: true,
+          });
         } else {
           log(`[Allure] WARNING: Allure HTML generation exited with code ${code ?? '?'} — continuing without HTML report`);
           logger.warn('Allure HTML generation failed (non-blocking)', { projectDir, exitCode: code });
+          resolve({
+            configured: true,
+            resultsGenerated: true,
+            reportGenerated: false,
+          });
         }
-        resolve();
       });
 
       allureChild.on('error', (err) => {
         log(`[Allure] WARNING: Allure command unavailable (${err.message}) — continuing without HTML report`);
         logger.warn('Allure command unavailable (non-blocking)', { projectDir, error: err.message });
-        resolve();
+        resolve({
+          configured: true,
+          resultsGenerated: true,
+          reportGenerated: false,
+        });
       });
     });
   }

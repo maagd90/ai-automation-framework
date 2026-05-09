@@ -18,9 +18,27 @@ const ZIP_EXCLUDED_TOP_LEVEL = new Set([
   'node_modules',
   'test-results',
   'playwright-report',
+  '.idea',
+  '.vscode',
+  '__MACOSX',
 ]);
 
-const ZIP_EXCLUDED_FILES = new Set(['.last-run.json']);
+const ZIP_EXCLUDED_FILE_NAMES = new Set(['.last-run.json', '.DS_Store']);
+
+export function shouldExcludeZipEntry(entryName: string): boolean {
+  const normalized = entryName.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length === 0) return false;
+
+  if (ZIP_EXCLUDED_TOP_LEVEL.has(segments[0])) return true;
+  if (segments.some((segment) => ZIP_EXCLUDED_TOP_LEVEL.has(segment))) return true;
+
+  const leaf = segments[segments.length - 1];
+  if (ZIP_EXCLUDED_FILE_NAMES.has(leaf)) return true;
+  if (leaf.endsWith('.iml')) return true;
+
+  return false;
+}
 
 export class ZipService {
   streamZip(dirPath: string, jobId: string, res: Response, onSuccess?: () => void): void {
@@ -44,10 +62,7 @@ export class ZipService {
 
     archive.pipe(res);
     archive.directory(dirPath, false, (entry) => {
-      // entry.name is the path relative to dirPath, using forward slashes on all platforms.
-      const topLevel = entry.name.split('/')[0];
-      if (ZIP_EXCLUDED_TOP_LEVEL.has(topLevel)) return false;
-      if (ZIP_EXCLUDED_FILES.has(entry.name)) return false;
+      if (shouldExcludeZipEntry(entry.name)) return false;
       return entry;
     });
     void archive.finalize();
