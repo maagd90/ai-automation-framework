@@ -4,9 +4,11 @@ import type { LocatorResult } from '../domain/LocatorResult.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { FileUtils } from '../../utils/FileUtils.js';
 import { Logger } from '../../utils/Logger.js';
+import { CredentialFieldClassifier } from './CredentialFieldClassifier.js';
 
 export class SpecGenerator {
   private readonly logger = new Logger('SpecGenerator');
+  private readonly classifier = new CredentialFieldClassifier();
 
   generate(
     testCase: TestCase,
@@ -39,7 +41,7 @@ export class SpecGenerator {
       const step = testCase.steps[index] ?? testCase.steps.find(s => s.target === locator.stepTarget);
       switch (locator.action) {
         case 'enter': {
-          const dataRef = this.resolveDataReference(step?.target, methodName, dataVarName);
+          const dataRef = this.resolveDataReference(step?.target, methodName, dataVarName, testCase);
           callLines.push(`await ${pageVarName}.${methodName}(${dataRef});`);
           break;
         }
@@ -89,7 +91,8 @@ ${assertionLines.map(l => `  ${l.trim()}`).join('\n')}
   }
 
   private buildTestData(testCase: TestCase, locators: LocatorResult[]): Record<string, unknown> {
-    const validUser: Record<string, string> = {};
+    const userKey = this.isInvalidScenario(testCase) ? 'invalidUser' : 'validUser';
+    const credentialUser: Record<string, string> = {};
     const inputs: Record<string, string> = {};
 
     for (const [index, locator] of locators.entries()) {
@@ -97,34 +100,62 @@ ${assertionLines.map(l => `  ${l.trim()}`).join('\n')}
       const step = testCase.steps[index] ?? testCase.steps.find((s) => s.target === locator.stepTarget);
       if (!step?.value) continue;
 
-      const target = StringUtils.normalize(step.target);
-      if (target.includes('email')) {
-        validUser.email = step.value;
-      } else if (target.includes('password')) {
-        validUser.password = step.value;
+      const fieldType = this.classifier.classify(step.target);
+      switch (fieldType) {
+        case 'username':
+          credentialUser.username = step.value;
+          break;
+        case 'email':
+          credentialUser.email = step.value;
+          break;
+        case 'password':
+          credentialUser.password = step.value;
+          break;
+        default: {
+          const key = StringUtils.toCamelCase(
+            (locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget)).replace(/^enter/, ''),
+          );
+          inputs[key || `input${index + 1}`] = step.value;
+        }
       }
-
-        const key = StringUtils.toCamelCase(
-        (locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget)).replace(/^enter/, ''),
-      );
-      inputs[key || `input${index + 1}`] = step.value;
     }
 
     const payload: Record<string, unknown> = {};
-    if (Object.keys(validUser).length > 0) {
-      payload.validUser = validUser;
+    if (Object.keys(credentialUser).length > 0) {
+      payload[userKey] = credentialUser;
     }
-    payload.inputs = inputs;
+    if (Object.keys(inputs).length > 0) {
+      payload.inputs = inputs;
+    }
     return payload;
   }
 
-  private resolveDataReference(target: string | undefined, methodName: string, dataVarName: string): string {
-    const normalized = StringUtils.normalize(target ?? '');
-    if (normalized.includes('email')) return `${dataVarName}.validUser?.email ?? ''`;
-    if (normalized.includes('password')) return `${dataVarName}.validUser?.password ?? ''`;
+  private resolveDataReference(target: string | undefined, methodName: string, dataVarName: string, testCase: TestCase): string {
+    const fieldType = this.classifier.classify(target ?? '');
+    const userKey = this.isInvalidScenario(testCase) ? 'invalidUser' : 'validUser';
+    // Use optional chaining so that when the parent key is absent from the
+    // test-data JSON (e.g. a test with no credential steps), reconcileSpecDataReferences
+    // can safely add the missing placeholder without TypeScript inferring a
+    // non-optional type from the JSON.
+    if (fieldType === 'username') return `${dataVarName}.${userKey}?.username ?? ''`;
+    if (fieldType === 'email') return `${dataVarName}.${userKey}?.email ?? ''`;
+    if (fieldType === 'password') return `${dataVarName}.${userKey}?.password ?? ''`;
 
     const key = StringUtils.toCamelCase(methodName.replace(/^enter/, ''));
     return `${dataVarName}.inputs?.${key} ?? ''`;
+  }
+
+  /**
+   * Determines whether a test case represents an invalid/negative scenario.
+   * Invalid scenarios store their credentials under `invalidUser` in test-data
+   * so they do not conflict with the `validUser` data used by success paths.
+   *
+   * Uses word-boundary matching to avoid false positives such as 'validate'
+   * containing 'invalid' or 'failure analysis' matching 'fail'.
+   */
+  private isInvalidScenario(testCase: TestCase): boolean {
+    const combined = [testCase.name, ...testCase.expectedResults].join(' ').toLowerCase();
+    return /\b(invalid|wrong|incorrect|fail(s|ed)?|error|locked|denied|unauthorized)\b/.test(combined);
   }
 
   private buildAssertionLines(expectedResults: string[]): string[] {

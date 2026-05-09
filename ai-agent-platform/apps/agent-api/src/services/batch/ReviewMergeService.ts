@@ -381,8 +381,10 @@ export function reconcileSpecDataReferences(
   dataVarName: string,
   mergedData: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Match dataVarName.topKey or dataVarName.topKey.nestedKey
-  const pattern = new RegExp(`\\b${dataVarName}\\.(\\w+)(?:\\.(\\w+))?`, 'g');
+  // Match dataVarName.topKey, dataVarName.topKey.nestedKey, and the optional-
+  // chaining variants dataVarName.topKey?.nestedKey.  The inner `\??` makes
+  // the literal `?` character optional so both `.` and `?.` are handled.
+  const pattern = new RegExp(`\\b${dataVarName}\\.(\\w+)(?:\\??\\.(\\w+))?`, 'g');
   let match: RegExpExecArray | null;
   const updated: Record<string, unknown> = JSON.parse(JSON.stringify(mergedData)) as Record<string, unknown>;
 
@@ -391,7 +393,7 @@ export function reconcileSpecDataReferences(
     const nestedKey = match[2];
 
     if (nestedKey) {
-      // Two-level access: dataVar.topKey.nestedKey
+      // Two-level access: dataVar.topKey.nestedKey  or  dataVar.topKey?.nestedKey
       if (
         !updated[topKey] ||
         typeof updated[topKey] !== 'object' ||
