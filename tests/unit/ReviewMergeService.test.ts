@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractTestBlocks,
   mergeLocatorEntries,
+  reconcileSpecDataReferences,
 } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
 import type { LocatorEntry } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
 
@@ -261,5 +262,94 @@ describe('mergeLocatorEntries', () => {
     const result = mergeLocatorEntries(entries);
     expect(result).toHaveLength(1);
     expect(result[0].confidenceScore).toBe(0.9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileSpecDataReferences unit tests
+// ---------------------------------------------------------------------------
+// These tests verify that the data reconciliation step adds any missing JSON
+// property paths that the merged spec file references via dot-notation so
+// that `tsc --noEmit` does not raise TS2339 errors.
+// ---------------------------------------------------------------------------
+
+describe('reconcileSpecDataReferences', () => {
+  it('adds missing top-level key with empty string placeholder', () => {
+    const spec = `
+import homeData from '../test-data/home.data.json';
+
+test('check title', async ({ page }) => {
+  await page.goto(homeData.url);
+});
+`;
+    const result = reconcileSpecDataReferences(spec, 'homeData', {});
+    expect(result).toHaveProperty('url', '');
+  });
+
+  it('adds missing nested key when parent object exists', () => {
+    const spec = `homeData.validUser.username`;
+    const data = { validUser: { password: 'secret_sauce' } };
+    const result = reconcileSpecDataReferences(spec, 'homeData', data);
+    expect((result['validUser'] as Record<string, unknown>)['username']).toBe('');
+    // Existing key must be preserved
+    expect((result['validUser'] as Record<string, unknown>)['password']).toBe('secret_sauce');
+  });
+
+  it('creates nested object when parent key is completely missing', () => {
+    const spec = `homeData.invalidUser.password`;
+    const result = reconcileSpecDataReferences(spec, 'homeData', {});
+    expect(result).toHaveProperty('invalidUser');
+    expect((result['invalidUser'] as Record<string, unknown>)['password']).toBe('');
+  });
+
+  it('does not overwrite existing values', () => {
+    const spec = `homeData.validUser.username homeData.validUser.password`;
+    const data = { validUser: { username: 'standard_user', password: 'secret_sauce' } };
+    const result = reconcileSpecDataReferences(spec, 'homeData', data);
+    expect((result['validUser'] as Record<string, unknown>)['username']).toBe('standard_user');
+    expect((result['validUser'] as Record<string, unknown>)['password']).toBe('secret_sauce');
+  });
+
+  it('handles multiple missing keys from SauceDemo-like spec', () => {
+    const spec = `
+import homeData from '../test-data/home.data.json';
+
+test('valid login', async ({ page }) => {
+  await loginPage.enterUsername(homeData.validUser.username);
+  await loginPage.enterPassword(homeData.validUser.password);
+});
+
+test('invalid login', async ({ page }) => {
+  await loginPage.enterUsername(homeData.invalidUser.username);
+  await loginPage.enterPassword(homeData.invalidUser.password);
+});
+`;
+    // Simulate partial data: validUser has username but not password; invalidUser is missing entirely
+    const data: Record<string, unknown> = { validUser: { username: 'standard_user' } };
+    const result = reconcileSpecDataReferences(spec, 'homeData', data);
+
+    const validUser = result['validUser'] as Record<string, unknown>;
+    expect(validUser['username']).toBe('standard_user');
+    expect(validUser['password']).toBe('');
+
+    const invalidUser = result['invalidUser'] as Record<string, unknown>;
+    expect(invalidUser['username']).toBe('');
+    expect(invalidUser['password']).toBe('');
+  });
+
+  it('returns data unchanged when spec references match existing structure', () => {
+    const spec = `loginData.validUser.username loginData.validUser.password`;
+    const data = { validUser: { username: 'standard_user', password: 'secret_sauce' } };
+    const result = reconcileSpecDataReferences(spec, 'loginData', data);
+    expect(result).toEqual(data);
+  });
+
+  it('does not touch unrelated data variable references', () => {
+    const spec = `otherData.someKey.nested homeData.title`;
+    const data: Record<string, unknown> = {};
+    const result = reconcileSpecDataReferences(spec, 'homeData', data);
+    // Only homeData references are processed
+    expect(result).toHaveProperty('title', '');
+    expect(result).not.toHaveProperty('someKey');
   });
 });

@@ -359,6 +359,62 @@ function featureKeyToClassName(featureKey: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Data reconciliation helper (exported for unit testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconciles the merged test-data JSON against the generated spec source to
+ * ensure every property path referenced in the spec actually exists in the
+ * data object.
+ *
+ * Scans for patterns like `dataVarName.topKey` and
+ * `dataVarName.topKey.nestedKey`, then inserts empty-string placeholders for
+ * any missing paths so that `tsc --noEmit` does not raise TS2339 errors.
+ *
+ * Example:
+ *   spec references `homeData.validUser.username` and `homeData.validUser.password`
+ *   but the merged data only has `{ validUser: { password: "..." } }`.
+ *   After reconcile: `{ validUser: { password: "...", username: "" } }`.
+ */
+export function reconcileSpecDataReferences(
+  specSource: string,
+  dataVarName: string,
+  mergedData: Record<string, unknown>,
+): Record<string, unknown> {
+  // Match dataVarName.topKey or dataVarName.topKey.nestedKey
+  const pattern = new RegExp(`\\b${dataVarName}\\.(\\w+)(?:\\.(\\w+))?`, 'g');
+  let match: RegExpExecArray | null;
+  const updated: Record<string, unknown> = JSON.parse(JSON.stringify(mergedData)) as Record<string, unknown>;
+
+  while ((match = pattern.exec(specSource)) !== null) {
+    const topKey = match[1];
+    const nestedKey = match[2];
+
+    if (nestedKey) {
+      // Two-level access: dataVar.topKey.nestedKey
+      if (
+        !updated[topKey] ||
+        typeof updated[topKey] !== 'object' ||
+        updated[topKey] === null
+      ) {
+        updated[topKey] = {};
+      }
+      const obj = updated[topKey] as Record<string, unknown>;
+      if (!(nestedKey in obj)) {
+        obj[nestedKey] = '';
+      }
+    } else {
+      // One-level access: dataVar.topKey
+      if (!(topKey in updated)) {
+        updated[topKey] = '';
+      }
+    }
+  }
+
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
 // Merge stats (for logging)
 // ---------------------------------------------------------------------------
 
@@ -485,9 +541,15 @@ export class ReviewMergeService {
         fs.writeFileSync(specPath, specFile, 'utf8');
         stats.finalFilesGenerated++;
 
+        // Merge data files then reconcile against the spec so every property
+        // path referenced in the spec (e.g. homeData.validUser.username) exists
+        // in the JSON.  Missing paths are added with '' as a placeholder so
+        // `tsc --noEmit` does not raise TS2339 errors.
+        const dataVarName = `${feature.replace(/-/g, '')}Data`;
         const mergedData = this.mergeDataFiles(datas);
+        const reconciledData = reconcileSpecDataReferences(specFile, dataVarName, mergedData);
         const dataPath = path.join(finalDir, 'src', 'test-data', `${feature}.data.json`);
-        fs.writeFileSync(dataPath, JSON.stringify(mergedData, null, 2), 'utf8');
+        fs.writeFileSync(dataPath, JSON.stringify(reconciledData, null, 2), 'utf8');
         stats.finalFilesGenerated++;
 
         logger.info('[ReviewMerge] spec merged', {
@@ -950,7 +1012,7 @@ ${uniqueBlocks.join('\n\n')}
 
   /**
    * Shallow-merges an array of test-data JSON objects.
-   * For nested objects (e.g. `validUser`), the first non-empty value wins.
+   * For nested objects (e.g. `validUser`), fields are combined so no key is lost.
    */
   private mergeDataFiles(datas: ParsedDataFile[]): ParsedDataFile {
     const merged: ParsedDataFile = {};
@@ -964,8 +1026,11 @@ ${uniqueBlocks.join('\n\n')}
           typeof value === 'object' &&
           value !== null
         ) {
-          // Shallow merge nested objects (e.g. validUser, inputs)
-          merged[key] = { ...(merged[key] as Record<string, unknown>), ...(value as Record<string, unknown>) };
+          // Deep-merge nested objects so keys from all children are preserved.
+          // e.g. child1: { validUser: { username: "x" } }
+          //      child2: { validUser: { password: "y" } }
+          // result:      { validUser: { username: "x", password: "y" } }
+          merged[key] = { ...(value as Record<string, unknown>), ...(merged[key] as Record<string, unknown>) };
         }
       }
     }
