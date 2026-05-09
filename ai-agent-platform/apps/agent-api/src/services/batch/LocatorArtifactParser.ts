@@ -77,7 +77,7 @@ export class LocatorArtifactParser {
         steps?: LegacyLocatorStep[];
       };
 
-      const feature = (parsed.feature || parsed.page || path.basename(filePath).replace(/\.locators\.json$/, '').replace(/\.json$/, '')).toLowerCase();
+      const feature = (parsed.feature || parsed.page || path.basename(filePath).replace(/\.(locators\.)?json$/, '')).toLowerCase();
       if (Array.isArray(parsed.locators)) {
         return {
           feature,

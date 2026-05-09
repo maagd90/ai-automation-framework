@@ -37,7 +37,6 @@ export class StepClassifier {
       || normalized.startsWith('open ')
       || normalized.startsWith('user is on')
       || normalized.startsWith('user lands on')
-      || normalized.includes(' page')
     );
   }
 }

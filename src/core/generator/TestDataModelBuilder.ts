@@ -61,7 +61,14 @@ export class TestDataModelBuilder {
   }
 
   private isInvalidScenario(testCase: TestCase): boolean {
-    const combined = [testCase.name, ...testCase.expectedResults].join(' ').toLowerCase();
+    const combined = [
+      testCase.name,
+      ...testCase.preconditions,
+      ...testCase.steps.map((step) => `${step.target ?? ''} ${step.value ?? ''}`.trim()),
+      ...testCase.expectedResults,
+    ]
+      .join(' ')
+      .toLowerCase();
     return /\b(invalid|wrong|incorrect|fail(s|ed)?|error|locked|denied|unauthorized)\b/.test(combined);
   }
 }

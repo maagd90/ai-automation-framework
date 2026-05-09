@@ -41,7 +41,7 @@ export class FrameworkSelfRepairLoop {
       const pagePath = path.join(pagesDir, file);
       const source = fs.readFileSync(pagePath, 'utf8');
       const seen = new Set<string>();
-      const next = source.replace(/^  async (\w+)\([^)]*\): Promise<[^>]+> \{[\s\S]*?^  \}/gm, (block, name: string) => {
+      const next = source.replace(/^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{[\s\S]*?^\s+\}/gm, (block, name: string) => {
         if (seen.has(name)) {
           changed = true;
           return '';
@@ -65,7 +65,7 @@ export class FrameworkSelfRepairLoop {
       const specPath = path.join(testsDir, file);
       const source = fs.readFileSync(specPath, 'utf8');
       const seen = new Set<string>();
-      const next = source.replace(/^test\((["'`])([\s\S]*?)\1,[\s\S]*?^\}\);?/gm, (block, _quote: string, title: string) => {
+      const next = source.replace(/^test\((["'`])([\s\S]*?)\1,[\s\S]*?^\s*\}\);?/gm, (block, _quote: string, title: string) => {
         if (seen.has(title)) {
           changed = true;
           return '';

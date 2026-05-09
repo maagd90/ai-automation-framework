@@ -34,7 +34,7 @@ function featureKeyFromClassName(className: string): string {
 
 function extractMethods(source: string): NormalizedMethod[] {
   const methods: NormalizedMethod[] = [];
-  const sigPattern = /^  async (\w+)\([^)]*\): Promise<[^>]+> \{/gm;
+  const sigPattern = /^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{/gm;
   let match: RegExpExecArray | null;
 
   while ((match = sigPattern.exec(source)) !== null) {
