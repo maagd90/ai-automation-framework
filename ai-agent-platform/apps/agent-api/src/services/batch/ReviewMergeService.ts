@@ -211,7 +211,7 @@ function extractLocatorStrategy(methodBody: string): string {
  *  - goto() is excluded from the methods list (re-generated later).
  */
 function parsePomSource(source: string): ParsedPom | null {
-  const classMatch = source.match(/export class ([A-Z][A-Za-z0-9_]*)\s*\{/);
+  const classMatch = source.match(/export class ([A-Z][A-Za-z0-9]*(?:_[A-Z][A-Za-z0-9]*)*)\s*\{/);
   if (!classMatch) return null;
   const className = classMatch[1];
   const featureKey = classNameToFeatureKey(className);
@@ -1081,7 +1081,7 @@ export class ReviewMergeService {
 
     if (className === 'LoginPage' && !methodNames.includes('expectLoginErrorVisible')) {
       const errorField = ensureFieldFromLocators(/error|alert/, 'errorMessage')
-        ?? reserveField('errorMessage', `this.page.locator("[role='alert'], [aria-live='assertive']")`);
+        ?? reserveField('errorMessage', `this.page.locator("[role='alert'], [aria-live]")`);
       renderedMethods.push(`  async expectLoginErrorVisible(): Promise<void> {
     await this.${errorField}.waitFor({ state: 'visible' });
   }`);
@@ -1089,7 +1089,7 @@ export class ReviewMergeService {
 
     if (className === 'ProductsPage') {
       const visibleField = ensureFieldFromLocators(/inventory|product|catalog|title|list/, 'productsTitle')
-        ?? reserveField('productsContainer', `this.page.locator("main, [role='main']")`);
+        ?? reserveField('productsContainer', `this.page.locator("main, [role='main']").first()`);
       if (!methodNames.includes('expectProductsPageVisible')) {
         renderedMethods.push(`  async expectProductsPageVisible(): Promise<void> {
     await this.${visibleField}.waitFor({ state: 'visible' });

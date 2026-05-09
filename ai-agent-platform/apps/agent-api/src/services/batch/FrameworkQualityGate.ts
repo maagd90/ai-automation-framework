@@ -49,7 +49,7 @@ export class FrameworkQualityGate {
       if (fs.existsSync(pagesDir)) {
         for (const pageFile of fs.readdirSync(pagesDir).filter((entry) => entry.endsWith('.ts'))) {
           const source = fs.readFileSync(path.join(pagesDir, pageFile), 'utf8');
-          const classNameMatch = source.match(/export class ([A-Z][A-Za-z0-9_]*)/);
+          const classNameMatch = source.match(/export class ([A-Z][A-Za-z0-9]*(?:_[A-Z][A-Za-z0-9]*)*)/);
           if (!classNameMatch?.[1]) continue;
           const methods = new Set<string>();
           for (const methodMatch of source.matchAll(/^\s+async (\w+)\(/gm)) {
