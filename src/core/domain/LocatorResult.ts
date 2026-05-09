@@ -3,6 +3,7 @@ import type { LocatorCandidate } from './LocatorCandidate.js';
 import type { ActionType } from './TestStep.js';
 
 export interface LocatorResult {
+  stepOrder: number;
   stepTarget: string;
   action: ActionType;
   methodName?: string;

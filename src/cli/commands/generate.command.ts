@@ -1,7 +1,6 @@
 import { BrowserSessionManager } from '../../core/browser/BrowserSessionManager.js';
 import { PageNavigator } from '../../core/browser/PageNavigator.js';
-import { DomInspector } from '../../core/browser/DomInspector.js';
-import { LocatorService } from '../../core/locator/LocatorService.js';
+import { ProgressiveLocatorResolver } from '../../core/locator/ProgressiveLocatorResolver.js';
 import { CodeGenerationService } from '../../core/generator/CodeGenerationService.js';
 import { TestCaseParserFactory } from '../../core/parser/TestCaseParserFactory.js';
 import { AiSupportService } from '../../core/ai/AiSupportService.js';
@@ -26,12 +25,8 @@ export class GenerateCommand {
       const navigator = new PageNavigator(page);
       await navigator.navigate(url);
 
-      const inspector = new DomInspector(page);
-      const elements = await inspector.collectElements();
-      this.logger.info(`Collected ${elements.length} elements`);
-
-      const locatorService = new LocatorService();
-      const locators = await locatorService.resolveLocatorsForSteps(page, testCase.steps, elements);
+      const resolver = new ProgressiveLocatorResolver();
+      const locators = await resolver.resolve(page, url, testCase.steps);
       this.logger.info(`Resolved ${locators.length} locators`);
 
       const generator = new CodeGenerationService();

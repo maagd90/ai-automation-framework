@@ -5,6 +5,10 @@ import { runtimeConfig } from '../../config/runtime.config';
 import type { JobEntity } from '../../domain/Job';
 import { logger } from '../../utils/logger';
 import { createNodeModulesLink, removeNodeModulesLink } from './FinalProjectRuntimeLinker';
+import { ArtifactNormalizer } from './ArtifactNormalizer';
+import { FrameworkQualityGate } from './FrameworkQualityGate';
+import { FrameworkSelfRepairLoop } from './FrameworkSelfRepairLoop';
+import { TestDataMergeService } from './TestDataMergeService';
 
 // ---------------------------------------------------------------------------
 // Internal data structures for parsed generated artefacts
@@ -455,6 +459,11 @@ interface MergeStats {
  * Logging is emitted at each step via the structured logger with no secrets.
  */
 export class ReviewMergeService {
+  private readonly artifactNormalizer = new ArtifactNormalizer();
+  private readonly testDataMergeService = new TestDataMergeService();
+  private readonly qualityGate = new FrameworkQualityGate();
+  private readonly selfRepairLoop = new FrameworkSelfRepairLoop();
+
   /**
    * Performs the full intelligent merge for the given job.
    *
@@ -489,12 +498,48 @@ export class ReviewMergeService {
       const srcDir = path.join(JOBS_BASE_DIR, job.jobId, 'children', childId, 'generated');
       if (!fs.existsSync(srcDir)) continue;
 
+      const normalizedArtifacts = this.artifactNormalizer.normalizeChildOutput(srcDir);
+      if (normalizedArtifacts.length === 0) continue;
       stats.childOutputsReceived++;
 
-      this.collectPoms(srcDir, pomsByFeature);
-      this.collectSpecs(srcDir, specsByFeature);
-      this.collectData(srcDir, dataByFeature);
-      this.collectLocators(srcDir, locatorsByFeature);
+      for (const artifact of normalizedArtifacts) {
+        if (artifact.page) {
+          const pageBucket = pomsByFeature.get(artifact.feature) ?? [];
+          pageBucket.push({
+            className: artifact.page.className,
+            featureKey: artifact.feature,
+            routePath: artifact.page.routePath,
+            methods: artifact.page.methods,
+          });
+          pomsByFeature.set(artifact.feature, pageBucket);
+        }
+
+        if (artifact.specs.length > 0) {
+          const specBucket = specsByFeature.get(artifact.feature) ?? [];
+          specBucket.push({
+            className: featureKeyToClassName(artifact.feature),
+            dataVarName: `${artifact.feature.replace(/-/g, '')}Data`,
+            specName: artifact.feature,
+            testBlocks: artifact.specs.map((spec) => ({
+              title: JSON.stringify(spec.title),
+              body: spec.body,
+            })),
+          });
+          specsByFeature.set(artifact.feature, specBucket);
+        }
+
+        if (Object.keys(artifact.testData).length > 0) {
+          const dataBucket = dataByFeature.get(artifact.feature) ?? [];
+          dataBucket.push(artifact.testData);
+          dataByFeature.set(artifact.feature, dataBucket);
+        }
+
+        if (artifact.locators.length > 0) {
+          const locatorBucket = locatorsByFeature.get(artifact.feature) ?? [];
+          locatorBucket.push(...artifact.locators);
+          locatorsByFeature.set(artifact.feature, locatorBucket);
+        }
+      }
     }
 
     // ── Step 2: Determine detected features ────────────────────────────────
@@ -543,15 +588,9 @@ export class ReviewMergeService {
         fs.writeFileSync(specPath, specFile, 'utf8');
         stats.finalFilesGenerated++;
 
-        // Merge data files then reconcile against the spec so every property
-        // path referenced in the spec (e.g. homeData.validUser.username) exists
-        // in the JSON.  Missing paths are added with '' as a placeholder so
-        // `tsc --noEmit` does not raise TS2339 errors.
-        const dataVarName = `${feature.replace(/-/g, '')}Data`;
         const mergedData = this.mergeDataFiles(datas);
-        const reconciledData = reconcileSpecDataReferences(specFile, dataVarName, mergedData);
         const dataPath = path.join(finalDir, 'src', 'test-data', `${feature}.data.json`);
-        fs.writeFileSync(dataPath, JSON.stringify(reconciledData, null, 2), 'utf8');
+        fs.writeFileSync(dataPath, JSON.stringify(mergedData, null, 2), 'utf8');
         stats.finalFilesGenerated++;
 
         logger.info('[ReviewMerge] spec merged', {
@@ -589,44 +628,7 @@ export class ReviewMergeService {
    * @throws Error if any required file is missing or an import cannot be resolved.
    */
   validate(finalDir: string): void {
-    const requiredPaths = [
-      path.join(finalDir, 'package.json'),
-      path.join(finalDir, 'playwright.config.ts'),
-      path.join(finalDir, 'src', 'tests'),
-    ];
-
-    for (const requiredPath of requiredPaths) {
-      if (!fs.existsSync(requiredPath)) {
-        throw new Error(`Merged project validation failed: missing ${path.basename(requiredPath)}`);
-      }
-    }
-
-    const testDir = path.join(finalDir, 'src', 'tests');
-    const specFiles = fs.readdirSync(testDir).filter((file) => file.endsWith('.spec.ts'));
-    if (specFiles.length === 0) {
-      throw new Error('Merged project validation failed: no generated spec files found');
-    }
-
-    for (const specFile of specFiles) {
-      const specPath = path.join(testDir, specFile);
-      const content = fs.readFileSync(specPath, 'utf8');
-      const matches = content.matchAll(/from\s+['"]\.\.\/pages\/([^'"]+)['"]/g);
-
-      for (const match of matches) {
-        const importTarget = match[1];
-        const pageTs = path.join(finalDir, 'src', 'pages', `${importTarget}.ts`);
-        if (!fs.existsSync(pageTs)) {
-          throw new Error(
-            `Merged project validation failed: ${specFile} imports missing page ${importTarget}.ts`,
-          );
-        }
-      }
-    }
-
-    // TypeScript syntax validation: run `tsc --noEmit` to catch broken spec output.
-    // Failures are treated as hard errors so the job fails early rather than
-    // producing a ZIP with unrunnable code.
-    this.runTscValidation(finalDir);
+    this.selfRepairLoop.run(finalDir, () => this.qualityGate.validate(finalDir, (dir) => this.runTscValidation(dir)));
   }
 
   /**
@@ -1017,26 +1019,7 @@ ${uniqueBlocks.join('\n\n')}
    * For nested objects (e.g. `validUser`), fields are combined so no key is lost.
    */
   private mergeDataFiles(datas: ParsedDataFile[]): ParsedDataFile {
-    const merged: ParsedDataFile = {};
-    for (const data of datas) {
-      for (const [key, value] of Object.entries(data)) {
-        if (!(key in merged) || (merged[key] === null || merged[key] === '')) {
-          merged[key] = value;
-        } else if (
-          typeof merged[key] === 'object' &&
-          merged[key] !== null &&
-          typeof value === 'object' &&
-          value !== null
-        ) {
-          // Deep-merge nested objects so keys from all children are preserved.
-          // e.g. child1: { validUser: { username: "x" } }
-          //      child2: { validUser: { password: "y" } }
-          // result:      { validUser: { username: "x", password: "y" } }
-          merged[key] = { ...(value as Record<string, unknown>), ...(merged[key] as Record<string, unknown>) };
-        }
-      }
-    }
-    return merged;
+    return this.testDataMergeService.merge(datas);
   }
 
   // ---------------------------------------------------------------------------

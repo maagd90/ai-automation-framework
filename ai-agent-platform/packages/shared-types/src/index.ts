@@ -10,6 +10,9 @@ export interface TestStep {
 export interface TestCase {
   id: string;
   name: string;
+  feature?: string;
+  module?: string;
+  category?: string;
   description?: string;
   preconditions?: string[];
   steps: TestStep[];

@@ -18,6 +18,9 @@ const TestStepSchema = z.object({
 
 const TestCaseSchema = z.object({
   name: z.string(),
+  feature: z.string().optional(),
+  module: z.string().optional(),
+  category: z.string().optional(),
   preconditions: z.array(z.string()).default([]),
   steps: z.array(TestStepSchema),
   expectedResults: z.array(z.string()).default([]),

@@ -41,6 +41,9 @@ export class JsonBatchTestCaseParser {
     const obj = raw as Record<string, unknown>;
     const id = typeof obj['id'] === 'string' ? obj['id'] : String(obj['id'] ?? context);
     const name = typeof obj['name'] === 'string' ? obj['name'] : id;
+    const feature = typeof obj['feature'] === 'string' ? obj['feature'] : undefined;
+    const module = typeof obj['module'] === 'string' ? obj['module'] : undefined;
+    const category = typeof obj['category'] === 'string' ? obj['category'] : undefined;
     const description = typeof obj['description'] === 'string' ? obj['description'] : undefined;
     const preconditions = Array.isArray(obj['preconditions'])
       ? (obj['preconditions'] as unknown[]).filter(
@@ -59,7 +62,7 @@ export class JsonBatchTestCaseParser {
     const steps: TestStep[] = (obj['steps'] as unknown[]).map((s, i) =>
       this.parseStep(s, `${context}.steps[${i}]`),
     );
-    return { id, name, description, preconditions, steps, expectedResults };
+    return { id, name, feature, module, category, description, preconditions, steps, expectedResults };
   }
 
   private parseStep(raw: unknown, context: string): TestStep {

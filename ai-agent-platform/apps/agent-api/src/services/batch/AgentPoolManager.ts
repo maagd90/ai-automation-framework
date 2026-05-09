@@ -84,7 +84,7 @@ export class AgentPoolManager {
             jobStore.set(job);
           });
           try {
-            result = await this.runner.run(job, split.childId, split.filePath, aiConfig, attempt);
+            result = await this.runner.run(job, split.childId, split.filePath, split.featureName, aiConfig, attempt);
           } finally {
             releaseGlobalSlot((active, max) => {
               job.addLog(

@@ -62,6 +62,7 @@ export class ChildJobRunner {
     job: JobEntity,
     childId: string,
     childFilePath: string,
+    featureName?: string,
     aiConfig?: AiConfig,
     attempt = 1,
   ): Promise<ChildRunResult> {
@@ -119,6 +120,7 @@ export class ChildJobRunner {
           AI_USE_FOR_NAMING: String(aiConfig?.usedFor?.naming ?? false),
           AI_USE_FOR_FAILURE_ANALYSIS: String(aiConfig?.usedFor?.failureAnalysis ?? false),
           AI_USAGE_OUTPUT_FILE: aiUsagePath,
+          GENERATED_FEATURE_NAME: featureName ?? '',
         },
       });
 

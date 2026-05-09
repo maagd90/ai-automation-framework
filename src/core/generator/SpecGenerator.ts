@@ -4,11 +4,24 @@ import type { LocatorResult } from '../domain/LocatorResult.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { FileUtils } from '../../utils/FileUtils.js';
 import { Logger } from '../../utils/Logger.js';
-import { CredentialFieldClassifier } from './CredentialFieldClassifier.js';
+import { TestDataModelBuilder } from './TestDataModelBuilder.js';
+
+export interface GeneratedSpecModel {
+  specName: string;
+  dataVarName: string;
+  pageVarName: string;
+  className: string;
+  title: string;
+  dataReferences: string[];
+  assertionLines: string[];
+  testBody: string;
+  fileContent: string;
+  testData: Record<string, unknown>;
+}
 
 export class SpecGenerator {
   private readonly logger = new Logger('SpecGenerator');
-  private readonly classifier = new CredentialFieldClassifier();
+  private readonly testDataBuilder = new TestDataModelBuilder();
 
   generate(
     testCase: TestCase,
@@ -16,32 +29,60 @@ export class SpecGenerator {
     url: string,
     locators: LocatorResult[],
     outputDir: string,
-  ): string {
+  ): { path: string; dataPath: string; model: GeneratedSpecModel } {
+    const model = this.buildModel(testCase, pageName, url, locators);
+    const outPath = path.join(outputDir, 'src', 'tests', `${model.specName}.spec.ts`);
+    const dataPath = path.join(outputDir, 'src', 'test-data', `${model.specName}.data.json`);
+
+    FileUtils.ensureDir(path.dirname(dataPath));
+    FileUtils.writeFile(dataPath, JSON.stringify(model.testData, null, 2));
+    FileUtils.ensureDir(path.dirname(outPath));
+    FileUtils.writeFile(outPath, model.fileContent);
+    this.logger.info(`Spec file generated: ${outPath}`);
+    return { path: outPath, dataPath, model };
+  }
+
+  buildModel(
+    testCase: TestCase,
+    pageName: string,
+    _url: string,
+    locators: LocatorResult[],
+  ): GeneratedSpecModel {
     const className = StringUtils.toPascalCase(pageName) + 'Page';
     const specName = StringUtils.toKebabCase(pageName);
-    const outPath = path.join(outputDir, 'src', 'tests', `${specName}.spec.ts`);
-    const dataPath = path.join(outputDir, 'src', 'test-data', `${specName}.data.json`);
     const pageVarName = StringUtils.toCamelCase(pageName) + 'Page';
     const dataVarName = StringUtils.toCamelCase(pageName) + 'Data';
 
     const callLines: string[] = [];
     callLines.push(`await ${pageVarName}.goto();`);
 
-    const actionableLocators = locators.filter((locator, index) => {
-      const step = testCase.steps[index] ?? testCase.steps.find((s) => s.target === locator.stepTarget);
+    const actionableLocators = locators.filter((locator) => {
+      const step = testCase.steps.find((candidate) => candidate.order === locator.stepOrder);
       return !this.isPreconditionStep(step?.target ?? locator.stepTarget);
     });
 
-    const testData = this.buildTestData(testCase, actionableLocators);
-    FileUtils.ensureDir(path.dirname(dataPath));
-    FileUtils.writeFile(dataPath, JSON.stringify(testData, null, 2));
+    const dataModel = this.testDataBuilder.build(testCase, actionableLocators);
+    const dataReferences: string[] = [];
 
-    for (const [index, locator] of actionableLocators.entries()) {
+    for (const locator of actionableLocators) {
       const methodName = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
-      const step = testCase.steps[index] ?? testCase.steps.find(s => s.target === locator.stepTarget);
+      const step = testCase.steps.find((candidate) => candidate.order === locator.stepOrder);
       switch (locator.action) {
         case 'enter': {
-          const dataRef = this.resolveDataReference(step?.target, methodName, dataVarName, testCase);
+          const referencePath = dataModel.referencesByStepOrder.get(locator.stepOrder);
+          const dataRef = referencePath
+            ? this.testDataBuilder.toExpression(referencePath, dataVarName)
+            : JSON.stringify(step?.value ?? '');
+          if (referencePath) dataReferences.push(referencePath);
+          callLines.push(`await ${pageVarName}.${methodName}(${dataRef});`);
+          break;
+        }
+        case 'select': {
+          const referencePath = dataModel.referencesByStepOrder.get(locator.stepOrder);
+          const dataRef = referencePath
+            ? this.testDataBuilder.toExpression(referencePath, dataVarName)
+            : JSON.stringify(step?.value ?? '');
+          if (referencePath) dataReferences.push(referencePath);
           callLines.push(`await ${pageVarName}.${methodName}(${dataRef});`);
           break;
         }
@@ -56,23 +97,32 @@ export class SpecGenerator {
 
     const assertionLines = this.buildAssertionLines(testCase.expectedResults);
 
-    const content = `import { test, expect } from '@playwright/test';
-import { ${className} } from '../pages/${className}';
-import ${dataVarName} from '../test-data/${specName}.data.json';
-
-test(${this.renderStringLiteral(testCase.name)}, async ({ page }) => {
+    const testBody = `test(${this.renderStringLiteral(testCase.name)}, async ({ page }) => {
   const ${pageVarName} = new ${className}(page);
 
 ${callLines.map(l => `  ${l.trim()}`).join('\n')}
 
 ${assertionLines.map(l => `  ${l.trim()}`).join('\n')}
-});
-`;
+});`;
 
-    FileUtils.ensureDir(path.dirname(outPath));
-    FileUtils.writeFile(outPath, content);
-    this.logger.info(`Spec file generated: ${outPath}`);
-    return outPath;
+    const content = `import { test, expect } from '@playwright/test';
+import { ${className} } from '../pages/${className}';
+import ${dataVarName} from '../test-data/${specName}.data.json';
+
+${testBody}
+`;
+    return {
+      specName,
+      dataVarName,
+      pageVarName,
+      className,
+      title: testCase.name,
+      dataReferences,
+      assertionLines,
+      testBody,
+      fileContent: content,
+      testData: dataModel.data,
+    };
   }
 
   private renderStringLiteral(value: string): string {
@@ -88,74 +138,6 @@ ${assertionLines.map(l => `  ${l.trim()}`).join('\n')}
         StringUtils.normalize(result).includes(normalizedTarget),
       ) ?? testCase.expectedResults[0]
     );
-  }
-
-  private buildTestData(testCase: TestCase, locators: LocatorResult[]): Record<string, unknown> {
-    const userKey = this.isInvalidScenario(testCase) ? 'invalidUser' : 'validUser';
-    const credentialUser: Record<string, string> = {};
-    const inputs: Record<string, string> = {};
-
-    for (const [index, locator] of locators.entries()) {
-      if (locator.action !== 'enter') continue;
-      const step = testCase.steps[index] ?? testCase.steps.find((s) => s.target === locator.stepTarget);
-      if (!step?.value) continue;
-
-      const fieldType = this.classifier.classify(step.target);
-      switch (fieldType) {
-        case 'username':
-          credentialUser.username = step.value;
-          break;
-        case 'email':
-          credentialUser.email = step.value;
-          break;
-        case 'password':
-          credentialUser.password = step.value;
-          break;
-        default: {
-          const key = StringUtils.toCamelCase(
-            (locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget)).replace(/^enter/, ''),
-          );
-          inputs[key || `input${index + 1}`] = step.value;
-        }
-      }
-    }
-
-    const payload: Record<string, unknown> = {};
-    if (Object.keys(credentialUser).length > 0) {
-      payload[userKey] = credentialUser;
-    }
-    if (Object.keys(inputs).length > 0) {
-      payload.inputs = inputs;
-    }
-    return payload;
-  }
-
-  private resolveDataReference(target: string | undefined, methodName: string, dataVarName: string, testCase: TestCase): string {
-    const fieldType = this.classifier.classify(target ?? '');
-    const userKey = this.isInvalidScenario(testCase) ? 'invalidUser' : 'validUser';
-    // Use optional chaining so that when the parent key is absent from the
-    // test-data JSON (e.g. a test with no credential steps), reconcileSpecDataReferences
-    // can safely add the missing placeholder without TypeScript inferring a
-    // non-optional type from the JSON.
-    if (fieldType === 'username') return `${dataVarName}.${userKey}?.username ?? ''`;
-    if (fieldType === 'email') return `${dataVarName}.${userKey}?.email ?? ''`;
-    if (fieldType === 'password') return `${dataVarName}.${userKey}?.password ?? ''`;
-
-    const key = StringUtils.toCamelCase(methodName.replace(/^enter/, ''));
-    return `${dataVarName}.inputs?.${key} ?? ''`;
-  }
-
-  /**
-   * Determines whether a test case represents an invalid/negative scenario.
-   * Invalid scenarios store their credentials under `invalidUser` in test-data
-   * so they do not conflict with the `validUser` data used by success paths.
-   *
-   * Uses word-boundary matching to avoid false positives such as 'validate'
-   * containing 'invalid' or 'failure analysis' matching 'fail'.
-   */
-  private isInvalidScenario(testCase: TestCase): boolean {
-    const combined = [testCase.name, ...testCase.expectedResults].join(' ').toLowerCase();
-    return /\b(invalid|wrong|incorrect|fail(s|ed)?|error|locked|denied|unauthorized)\b/.test(combined);
   }
 
   private buildAssertionLines(expectedResults: string[]): string[] {

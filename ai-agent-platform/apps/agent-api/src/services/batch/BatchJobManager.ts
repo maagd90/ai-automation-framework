@@ -102,6 +102,11 @@ export class BatchJobManager {
 
       // ── Feature partitioning metadata ─────────────────────────────────────
       const partitions = this.partitioner.partition(batch.testCases);
+      for (const partition of partitions) {
+        for (const testCase of partition.testCases) {
+          testCase.feature = partition.featureName;
+        }
+      }
       const partitionSummary = partitions.map((p) => `${p.featureName}(${p.testCases.length})`).join(', ');
       log(`Feature partitions: ${partitionSummary}`);
       logger.info('Feature partitions detected', {

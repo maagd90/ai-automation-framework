@@ -5,37 +5,70 @@ import { StringUtils } from '../../utils/StringUtils.js';
 import { FileUtils } from '../../utils/FileUtils.js';
 import { Logger } from '../../utils/Logger.js';
 
+export interface GeneratedPageMethod {
+  name: string;
+  action: LocatorResult['action'];
+  locatorStrategy: string;
+  body: string;
+}
+
+export interface GeneratedPageModel {
+  pageName: string;
+  className: string;
+  routePath: string;
+  methods: GeneratedPageMethod[];
+}
+
 export class PageObjectGenerator {
   private readonly logger = new Logger('PageObjectGenerator');
 
-  generate(pageName: string, url: string, locators: LocatorResult[], outputDir: string): string {
+  generate(
+    pageName: string,
+    url: string,
+    locators: LocatorResult[],
+    outputDir: string,
+  ): { path: string; model: GeneratedPageModel } {
+    const model = this.buildModel(pageName, url, locators);
+    const outPath = path.join(outputDir, 'src', 'pages', `${model.className}.ts`);
+    const content = this.render(model);
+
+    FileUtils.ensureDir(path.dirname(outPath));
+    FileUtils.writeFile(outPath, content);
+    this.logger.info(`Page object generated: ${outPath}`);
+    return { path: outPath, model };
+  }
+
+  buildModel(pageName: string, url: string, locators: LocatorResult[]): GeneratedPageModel {
     const className = StringUtils.toPascalCase(pageName) + 'Page';
     const routePath = this.resolveRoutePath(url);
     const methods = locators
       .filter((locator) => !this.isPreconditionStep(locator.stepTarget))
-      .map((l) => this.renderMethod(l))
-      .join('\n\n');
-    const outPath = path.join(outputDir, 'src', 'pages', `${className}.ts`);
+      .map((locator) => ({
+        name: locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget),
+        action: locator.action,
+        locatorStrategy: locator.primaryLocator.strategy,
+        body: this.renderMethod(locator),
+      }));
 
-    const content = `import { type Page } from '@playwright/test';
+    return { pageName, className, routePath, methods };
+  }
+
+  render(model: GeneratedPageModel): string {
+    const methods = model.methods.map((method) => method.body).join('\n\n');
+    return `import { type Page } from '@playwright/test';
 import { waitForPageLoad } from '../utils/wait.util';
 
-export class ${className} {
+export class ${model.className} {
   constructor(private readonly page: Page) {}
 
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(routePath)});
+    await this.page.goto(${this.renderStringLiteral(model.routePath)});
     await waitForPageLoad(this.page);
   }
 }
 `;
-
-    FileUtils.ensureDir(path.dirname(outPath));
-    FileUtils.writeFile(outPath, content);
-    this.logger.info(`Page object generated: ${outPath}`);
-    return outPath;
   }
 
   private renderMethod(locator: LocatorResult): string {
