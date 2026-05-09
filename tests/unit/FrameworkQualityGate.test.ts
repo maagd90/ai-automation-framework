@@ -66,4 +66,55 @@ test('Login with valid credentials', async ({ page }) => {
 
     expect(() => gate.validate(dir, () => undefined)).toThrow(/does not contain validUser.password/);
   });
+
+  it('passes zip readiness when report and allure artifacts are consistent', () => {
+    const dir = createProject();
+    fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'allure-results'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'allure-report'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'reports', 'batch-execution-report.json'), JSON.stringify({ status: 'passed' }, null, 2));
+
+    const gate = new FrameworkQualityGate();
+
+    expect(() =>
+      gate.validateZipReadiness(dir, {
+        executionMode: 'generate-and-execute',
+        report: {
+          generation: { total: 3, passed: 3, failed: 0 },
+          execution: { enabled: true, total: 3, passed: 3, failed: 0, exitCode: 0 },
+          allure: { configured: true, resultsGenerated: true, reportGenerated: true },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('fails zip readiness when forbidden artifacts remain', () => {
+    const dir = createProject();
+    fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'reports', 'batch-execution-report.json'), JSON.stringify({ status: 'passed' }, null, 2));
+    fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+
+    const gate = new FrameworkQualityGate();
+
+    expect(() => gate.validateZipReadiness(dir, {})).toThrow(/Forbidden artifact found/);
+  });
+
+  it('fails zip readiness when execution or allure status is inconsistent with artifacts', () => {
+    const dir = createProject();
+    fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'reports', 'batch-execution-report.json'), JSON.stringify({ status: 'partial' }, null, 2));
+
+    const gate = new FrameworkQualityGate();
+
+    expect(() =>
+      gate.validateZipReadiness(dir, {
+        executionMode: 'generate-and-execute',
+        report: {
+          generation: { total: 3, passed: 3, failed: 0 },
+          execution: { enabled: false, total: 3, passed: 3, failed: 0, exitCode: 0 },
+          allure: { configured: true, resultsGenerated: true, reportGenerated: true },
+        },
+      }),
+    ).toThrow(/Execution mode is generate-and-execute|allure-results|allure-report/);
+  });
 });

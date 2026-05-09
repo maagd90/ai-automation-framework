@@ -55,6 +55,13 @@ interface ParsedDataFile {
   [key: string]: unknown;
 }
 
+interface PageBucket {
+  pageKey: string;
+  className: string;
+  routePaths: string[];
+  methods: ParsedMethod[];
+}
+
 // ---------------------------------------------------------------------------
 // Locator strategy priority for deduplication (higher = preferred)
 // ---------------------------------------------------------------------------
@@ -362,6 +369,24 @@ function featureKeyToClassName(featureKey: string): string {
   return `${pascal}Page`;
 }
 
+export function inferPageKeyFromText(text: string, fallbackPageKey: string): string {
+  const normalized = text.toLowerCase();
+
+  if (/(username|password|login|sign[\s-]?in|authenticate|credential|auth|error|alert)/.test(normalized)) {
+    return 'login';
+  }
+
+  if (/(inventory|product|catalog|add[\s-]?to[\s-]?cart|remove[\s-]?from[\s-]?cart|cart[\s-]?badge|sort|filter|search results?)/.test(normalized)) {
+    return 'products';
+  }
+
+  if (/(checkout|cart item|cart contents|shopping cart|continue shopping|proceed to checkout)/.test(normalized)) {
+    return 'cart';
+  }
+
+  return fallbackPageKey;
+}
+
 // ---------------------------------------------------------------------------
 // Data reconciliation helper (exported for unit testing)
 // ---------------------------------------------------------------------------
@@ -555,33 +580,42 @@ export class ReviewMergeService {
       featuresDetected: stats.featuresDetected,
     });
 
-    // ── Step 2b: Write merged locator files ────────────────────────────────
-    this.writeLocatorFiles(finalDir, locatorsByFeature, stats, job.jobId);
+    const pageBuckets = this.buildPageBuckets(pomsByFeature);
+    const locatorsByPage = this.groupLocatorsByPageKey(locatorsByFeature);
+    const methodOwnership = this.buildMethodOwnership(pageBuckets);
 
-    // ── Step 3: Merge and write final files per feature ────────────────────
+    // ── Step 2b: Write merged locator files ────────────────────────────────
+    this.writeLocatorFiles(finalDir, locatorsByPage, stats, job.jobId);
+
+    // ── Step 3: Merge and write final page objects ────────────────────────
+    for (const [pageKey, bucket] of pageBuckets) {
+      const { file: pomFile, methodsMerged } = this.mergePageObject(
+        pageKey,
+        bucket,
+        locatorsByPage.get(pageKey) ?? [],
+      );
+      stats.duplicateMethodsMerged += methodsMerged;
+
+      const pomPath = path.join(finalDir, 'src', 'pages', `${bucket.className}.ts`);
+      fs.writeFileSync(pomPath, pomFile, 'utf8');
+      stats.finalFilesGenerated++;
+
+      logger.info('[ReviewMerge] POM merged', {
+        jobId: job.jobId,
+        pageKey,
+        className: bucket.className,
+        sourceMethods: bucket.methods.length,
+        methodsMergedOut: methodsMerged,
+      });
+    }
+
+    // ── Step 4: Merge and write final files per feature ────────────────────
     for (const feature of allFeatures) {
-      const poms = pomsByFeature.get(feature) ?? [];
       const specs = specsByFeature.get(feature) ?? [];
       const datas = dataByFeature.get(feature) ?? [];
 
-      if (poms.length > 0) {
-        const { file: pomFile, methodsMerged } = this.mergePoms(feature, poms);
-        stats.duplicateMethodsMerged += methodsMerged;
-
-        const pomPath = path.join(finalDir, 'src', 'pages', `${featureKeyToClassName(feature)}.ts`);
-        fs.writeFileSync(pomPath, pomFile, 'utf8');
-        stats.finalFilesGenerated++;
-
-        logger.info('[ReviewMerge] POM merged', {
-          jobId: job.jobId,
-          feature,
-          sourcePoms: poms.length,
-          methodsMergedOut: methodsMerged,
-        });
-      }
-
       if (specs.length > 0) {
-        const { file: specFile, duplicatesRemoved } = this.mergeSpecs(feature, specs, datas);
+        const { file: specFile, duplicatesRemoved } = this.mergeSpecs(feature, specs, methodOwnership);
         stats.duplicateSpecsRemoved += duplicatesRemoved;
 
         const specPath = path.join(finalDir, 'src', 'tests', `${feature}.spec.ts`);
@@ -603,10 +637,10 @@ export class ReviewMergeService {
       }
     }
 
-    // ── Step 4: Scaffold project-level files ───────────────────────────────
+    // ── Step 5: Scaffold project-level files ───────────────────────────────
     this.scaffoldProject(finalDir, job);
 
-    // ── Step 5: Optional Prettier formatting ───────────────────────────────
+    // ── Step 6: Optional Prettier formatting ───────────────────────────────
     this.runPrettierIfAvailable(finalDir, job.jobId);
 
     logger.info('[ReviewMerge] merge complete', {
@@ -629,6 +663,20 @@ export class ReviewMergeService {
    */
   validate(finalDir: string): void {
     this.selfRepairLoop.run(finalDir, () => this.qualityGate.validate(finalDir, (dir) => this.runTscValidation(dir)));
+  }
+
+  validateZipReadiness(
+    finalDir: string,
+    options: {
+      executionMode?: 'generate-only' | 'generate-and-execute';
+      report?: {
+        generation?: { total?: number; passed?: number; failed?: number };
+        execution?: { enabled?: boolean; total?: number; passed?: number; failed?: number; exitCode?: number };
+        allure?: { configured?: boolean; resultsGenerated?: boolean; reportGenerated?: boolean };
+      };
+    },
+  ): void {
+    this.qualityGate.validateZipReadiness(finalDir, options);
   }
 
   /**
@@ -885,6 +933,57 @@ export class ReviewMergeService {
   // Merge helpers
   // ---------------------------------------------------------------------------
 
+  private buildPageBuckets(pomsByFeature: Map<string, ParsedPom[]>): Map<string, PageBucket> {
+    const buckets = new Map<string, PageBucket>();
+
+    for (const [featureKey, poms] of pomsByFeature) {
+      for (const pom of poms) {
+        for (const method of pom.methods) {
+          const pageKey = inferPageKeyFromText(`${method.name} ${method.body}`, featureKey);
+          const bucket = buckets.get(pageKey) ?? {
+            pageKey,
+            className: featureKeyToClassName(pageKey),
+            routePaths: [],
+            methods: [],
+          };
+          if (pom.routePath) bucket.routePaths.push(pom.routePath);
+          bucket.methods.push(method);
+          buckets.set(pageKey, bucket);
+        }
+      }
+    }
+
+    return buckets;
+  }
+
+  private groupLocatorsByPageKey(locatorsByFeature: Map<string, LocatorEntry[]>): Map<string, LocatorEntry[]> {
+    const grouped = new Map<string, LocatorEntry[]>();
+
+    for (const [featureKey, entries] of locatorsByFeature) {
+      for (const entry of entries) {
+        const pageKey = inferPageKeyFromText(
+          `${entry.name ?? ''} ${entry.target ?? ''} ${entry.selector ?? ''}`,
+          featureKey,
+        );
+        const bucket = grouped.get(pageKey) ?? [];
+        bucket.push(entry);
+        grouped.set(pageKey, bucket);
+      }
+    }
+
+    return grouped;
+  }
+
+  private buildMethodOwnership(pageBuckets: Map<string, PageBucket>): Map<string, string> {
+    const ownership = new Map<string, string>();
+    for (const bucket of pageBuckets.values()) {
+      for (const method of bucket.methods) {
+        ownership.set(method.name, bucket.className);
+      }
+    }
+    return ownership;
+  }
+
   /**
    * Merges all POM files for a feature into a single source string.
    *
@@ -893,31 +992,26 @@ export class ReviewMergeService {
    *    locator strategy (getByTestId > getByRole > getByLabel > …).
    *  - Ties are broken by keeping the first seen.
    */
-  private mergePoms(
-    featureKey: string,
-    poms: ParsedPom[],
+  private mergePageObject(
+    pageKey: string,
+    bucket: PageBucket,
+    locatorEntries: LocatorEntry[],
   ): { file: string; methodsMerged: number } {
-    const className = featureKeyToClassName(featureKey);
-
-    // Pick route path from the first POM that has a non-trivial route
-    const routePath = poms.find((p) => p.routePath && p.routePath !== '/')?.routePath
-      ?? poms[0]?.routePath
-      ?? '/';
+    const className = bucket.className;
+    const routePath = bucket.routePaths.find((candidate) => candidate && candidate !== '/') ?? bucket.routePaths[0] ?? '/';
 
     // Deduplicate methods: name → best (highest locator priority) ParsedMethod
     const methodMap = new Map<string, ParsedMethod>();
     let methodsMerged = 0;
 
-    for (const pom of poms) {
-      for (const method of pom.methods) {
-        const existing = methodMap.get(method.name);
-        if (!existing) {
+    for (const method of bucket.methods) {
+      const existing = methodMap.get(method.name);
+      if (!existing) {
+        methodMap.set(method.name, method);
+      } else {
+        methodsMerged++;
+        if (locatorPriority(method.locatorStrategy) > locatorPriority(existing.locatorStrategy)) {
           methodMap.set(method.name, method);
-        } else {
-          methodsMerged++;
-          if (locatorPriority(method.locatorStrategy) > locatorPriority(existing.locatorStrategy)) {
-            methodMap.set(method.name, method);
-          }
         }
       }
     }
@@ -927,24 +1021,51 @@ export class ReviewMergeService {
 
     const usedFieldNames = new Set<string>();
     const locatorFieldLines: string[] = [];
-    const renderedMethods: string[] = methodsBlock.map((methodBody) => {
-      const extraction = this.extractLocatorExpression(methodBody);
-      if (!extraction) return methodBody;
-
-      const baseField = this.toLocatorFieldName(extraction.methodNameHint);
+    const semanticFields = new Map<string, string>();
+    const reserveField = (baseField: string, locatorExpression: string, semanticHint?: string): string => {
       let fieldName = baseField;
       let index = 2;
       while (usedFieldNames.has(fieldName)) {
         fieldName = `${baseField}${index++}`;
       }
       usedFieldNames.add(fieldName);
-      locatorFieldLines.push(`  private readonly ${fieldName} = ${extraction.locatorExpression};`);
+      locatorFieldLines.push(`  private readonly ${fieldName} = ${locatorExpression};`);
+      if (semanticHint) semanticFields.set(semanticHint, fieldName);
+      return fieldName;
+    };
+    const renderedMethods: string[] = methodsBlock.map((methodBody) => {
+      const extraction = this.extractLocatorExpression(methodBody);
+      if (!extraction) return methodBody;
+
+      const baseField = this.toLocatorFieldName(extraction.methodNameHint);
+      const fieldName = reserveField(
+        baseField,
+        extraction.locatorExpression,
+        `${extraction.methodNameHint.toLowerCase()} ${methodBody.toLowerCase()}`,
+      );
       return methodBody.replace(extraction.locatorExpression, `this.${fieldName}`);
     });
 
     const methodNames = Array.from(methodMap.keys());
+
+    const ensureFieldFromLocators = (matcher: RegExp, fallbackName: string): string | undefined => {
+      for (const [semanticHint, fieldName] of semanticFields) {
+        if (matcher.test(semanticHint)) return fieldName;
+      }
+      const matchedLocator = locatorEntries.find((entry) =>
+        matcher.test(`${entry.name ?? ''} ${entry.target ?? ''} ${entry.selector ?? ''}`.toLowerCase()),
+      );
+      if (!matchedLocator) return undefined;
+      const locatorExpression = matchedLocator.selector.replace(/\bpage\./g, 'this.page.');
+      const baseField = this.toLocatorFieldName(matchedLocator.name || fallbackName);
+      return reserveField(baseField, locatorExpression, `${matchedLocator.name ?? ''} ${matchedLocator.target ?? ''}`.toLowerCase());
+    };
+
+    let usesExpect = false;
+
     if (
-      methodNames.includes('enterUsername')
+      className === 'LoginPage'
+      && methodNames.includes('enterUsername')
       && methodNames.includes('enterPassword')
       && methodNames.includes('clickLogin')
       && !methodNames.includes('login')
@@ -956,8 +1077,41 @@ export class ReviewMergeService {
   }`);
     }
 
+    if (className === 'LoginPage' && !methodNames.includes('expectLoginErrorVisible')) {
+      const errorField = ensureFieldFromLocators(/error|alert/, 'errorMessage')
+        ?? reserveField('errorMessage', `this.page.locator("[role='alert'], [aria-live='assertive']")`);
+      renderedMethods.push(`  async expectLoginErrorVisible(): Promise<void> {
+    await this.${errorField}.waitFor({ state: 'visible' });
+  }`);
+    }
+
+    if (className === 'ProductsPage') {
+      const visibleField = ensureFieldFromLocators(/inventory|product|catalog|title|list/, 'productsTitle')
+        ?? reserveField('productsContainer', `this.page.locator("main, [role='main']")`);
+      if (!methodNames.includes('expectProductsPageVisible')) {
+        renderedMethods.push(`  async expectProductsPageVisible(): Promise<void> {
+    await this.${visibleField}.waitFor({ state: 'visible' });
+  }`);
+      }
+
+      const cartBadgeField = ensureFieldFromLocators(/cart.*badge|badge|shopping.*cart/, 'cartBadge');
+      if (cartBadgeField && !methodNames.includes('expectCartBadgeCount')) {
+        usesExpect = true;
+        renderedMethods.push(`  async expectCartBadgeCount(value: string): Promise<void> {
+    await expect(this.${cartBadgeField}).toHaveText(value);
+  }`);
+      }
+
+      const addToCartMethod = methodNames.find((name) => /add.*to.*cart/i.test(name));
+      if (addToCartMethod && !methodNames.includes('addFirstProductToCart')) {
+        renderedMethods.push(`  async addFirstProductToCart(): Promise<void> {
+    await this.${addToCartMethod}();
+  }`);
+      }
+    }
+
     const fieldsBlock = locatorFieldLines.length > 0 ? `${locatorFieldLines.join('\n')}\n\n` : '';
-    const file = `import { type Page } from '@playwright/test';
+    const file = `import { ${usesExpect ? 'expect, ' : ''}type Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 export class ${className} extends BasePage {
@@ -985,14 +1139,13 @@ ${fieldsBlock}${renderedMethods.join('\n\n')}
   private mergeSpecs(
     featureKey: string,
     specs: ParsedSpec[],
-    _datas: ParsedDataFile[],
+    methodOwnership: Map<string, string>,
   ): { file: string; duplicatesRemoved: number } {
-    const className = featureKeyToClassName(featureKey);
-    const pageVarName = lcFirst(className);
     const dataVarName = `${featureKey.replace(/-/g, '')}Data`;
 
     const seenTitles = new Set<string>();
     const uniqueBlocks: string[] = [];
+    const importClasses = new Set<string>();
     let duplicatesRemoved = 0;
 
     for (const spec of specs) {
@@ -1003,22 +1156,23 @@ ${fieldsBlock}${renderedMethods.join('\n\n')}
         }
         seenTitles.add(block.title);
 
-        // Rewrite the test block to use the canonical variable names
         const rewritten = this.rewriteTestBlock(
           block.body,
-          spec.className,
-          className,
           spec.dataVarName,
           dataVarName,
-          lcFirst(spec.className),
-          pageVarName,
+          methodOwnership,
         );
-        uniqueBlocks.push(rewritten);
+        rewritten.importClasses.forEach((className) => importClasses.add(className));
+        uniqueBlocks.push(rewritten.body);
       }
     }
 
+    const importLines = Array.from(importClasses)
+      .sort()
+      .map((className) => `import { ${className} } from '../pages/${className}';`)
+      .join('\n');
     const file = `import { test, expect } from '@playwright/test';
-import { ${className} } from '../pages/${className}';
+${importLines}
 import ${dataVarName} from '../test-data/${featureKey}.data.json';
 
 ${uniqueBlocks.join('\n\n')}
@@ -1033,17 +1187,61 @@ ${uniqueBlocks.join('\n\n')}
    */
   private rewriteTestBlock(
     body: string,
-    oldClass: string,
-    newClass: string,
     oldDataVar: string,
     newDataVar: string,
-    oldPageVar: string,
-    newPageVar: string,
-  ): string {
-    return body
-      .replaceAll(oldClass, newClass)
-      .replaceAll(oldDataVar, newDataVar)
-      .replaceAll(oldPageVar, newPageVar);
+    methodOwnership: Map<string, string>,
+  ): { body: string; importClasses: Set<string> } {
+    const importClasses = new Set<string>();
+    const pageVarByClass = new Map<string, string>();
+    const canonicalVarName = (className: string): string => {
+      const existing = pageVarByClass.get(className);
+      if (existing) return existing;
+      const value = lcFirst(className);
+      pageVarByClass.set(className, value);
+      return value;
+    };
+
+    let rewritten = body.replaceAll(oldDataVar, newDataVar);
+    rewritten = rewritten.replace(/^\s*const \w+\s*=\s*new\s+\w+\(page\);\s*$/gm, '').replace(/\n{3,}/g, '\n\n');
+
+    rewritten = rewritten.replace(/await\s+(\w+)\.(\w+)\(/g, (full, _pageVar: string, methodName: string) => {
+      const className = methodOwnership.get(methodName);
+      if (!className) return full;
+      importClasses.add(className);
+      return `await ${canonicalVarName(className)}.${methodName}(`;
+    });
+
+    const invalidScenario = /\b(invalid|wrong|incorrect|locked|error|denied|unauthorized|failed)\b/i.test(rewritten);
+    const usesProductsPage = importClasses.has('ProductsPage');
+    const loginPageVar = canonicalVarName('LoginPage');
+    const productsPageVar = canonicalVarName('ProductsPage');
+
+    rewritten = rewritten.replace(/^\s*await expect\(page\)\.not\.toHaveURL\(\/login\/i\);\s*$/gm, () => {
+      if (invalidScenario) {
+        importClasses.add('LoginPage');
+        return `  await ${loginPageVar}.expectLoginErrorVisible();\n  await expect(page).toHaveURL(/login|sign-?in|auth|\\/$/i);`;
+      }
+
+      if (usesProductsPage) {
+        importClasses.add('ProductsPage');
+        return `  await ${productsPageVar}.expectProductsPageVisible();\n  await expect(page).toHaveURL(/inventory|product|dashboard/i);`;
+      }
+
+      return '  await expect(page).toHaveURL(/inventory|product|dashboard/i);';
+    });
+
+    const instantiationLines = Array.from(importClasses)
+      .sort()
+      .map((className) => `  const ${canonicalVarName(className)} = new ${className}(page);`);
+
+    if (instantiationLines.length > 0) {
+      rewritten = rewritten.replace(
+        /(\basync\s*\(\s*\{[^}]+\}\s*\)\s*=>\s*\{\s*\n?)/,
+        `$1${instantiationLines.join('\n')}\n\n`,
+      );
+    }
+
+    return { body: rewritten, importClasses };
   }
 
   /**
@@ -1079,6 +1277,23 @@ ${uniqueBlocks.join('\n\n')}
       },
     };
     fs.writeFileSync(path.join(finalDir, 'package.json'), JSON.stringify(pkgJson, null, 2), 'utf8');
+    fs.writeFileSync(
+      path.join(finalDir, 'package-lock.json'),
+      JSON.stringify({
+        name: pkgJson.name,
+        version: pkgJson.version,
+        lockfileVersion: 3,
+        requires: true,
+        packages: {
+          '': {
+            name: pkgJson.name,
+            version: pkgJson.version,
+            devDependencies: pkgJson.devDependencies,
+          },
+        },
+      }, null, 2),
+      'utf8',
+    );
 
     const screenshot = job.screenshotOnFailure ? "'only-on-failure'" : "'off'";
     const trace = job.traceOnFailure ? "'retain-on-failure'" : "'off'";
@@ -1210,13 +1425,13 @@ Allure results are generated under \`allure-results/\` and the HTML report under
 │   ├── tests/         # Playwright spec files (one per feature)
 │   ├── locators/      # Resolved locator snapshots
 │   ├── test-data/     # Externalised test data (one JSON per feature)
-│   ├── utils/         # Shared utilities
-│   └── fixtures/      # Test fixtures
-├── reports/           # Execution reports
+│   └── utils/         # Shared utilities
+├── reports/           # Execution reports (including batch-execution-report.json)
 ├── allure-results/    # Raw Allure test results (generated at runtime)
 ├── allure-report/     # Allure HTML report (generated via npm run allure:generate)
 ├── playwright.config.ts
 ├── tsconfig.json
+├── package-lock.json
 └── package.json
 \`\`\`
 `;

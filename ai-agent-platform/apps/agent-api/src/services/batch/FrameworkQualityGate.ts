@@ -7,6 +7,15 @@ export interface QualityGateIssue {
   message: string;
 }
 
+export interface ZipReadinessOptions {
+  executionMode?: 'generate-only' | 'generate-and-execute';
+  report?: {
+    generation?: { total?: number; passed?: number; failed?: number };
+    execution?: { enabled?: boolean; total?: number; passed?: number; failed?: number; exitCode?: number };
+    allure?: { configured?: boolean; resultsGenerated?: boolean; reportGenerated?: boolean };
+  };
+}
+
 export class FrameworkQualityGate {
   private readonly dataValidator = new GeneratedDataReferenceValidator();
   private readonly forbiddenDirNames = new Set([
@@ -166,6 +175,93 @@ export class FrameworkQualityGate {
     }
 
     runTscValidation(finalDir);
+  }
+
+  validateZipReadiness(finalDir: string, options: ZipReadinessOptions = {}): void {
+    const issues: QualityGateIssue[] = [];
+    const reportPath = path.join(finalDir, 'reports', 'batch-execution-report.json');
+
+    this.collectForbiddenArtifacts(finalDir, issues);
+
+    if (!fs.existsSync(reportPath)) {
+      issues.push({
+        code: 'missing-batch-report',
+        message: `Missing generated batch report: ${reportPath}`,
+      });
+    }
+
+    const report = options.report;
+    if (report) {
+      const generationTotal = report.generation?.total ?? 0;
+      const generationPassed = report.generation?.passed ?? 0;
+      const generationFailed = report.generation?.failed ?? 0;
+      if (generationPassed + generationFailed !== generationTotal) {
+        issues.push({
+          code: 'invalid-generation-report',
+          message: 'Generation report totals are inconsistent',
+        });
+      }
+
+      if (options.executionMode === 'generate-and-execute') {
+        if (!report.execution?.enabled) {
+          issues.push({
+            code: 'missing-execution-capture',
+            message: 'Execution mode is generate-and-execute but report.execution.enabled is false',
+          });
+        }
+        if (typeof report.execution?.exitCode !== 'number') {
+          issues.push({
+            code: 'missing-execution-exit-code',
+            message: 'Execution exit code was not captured in the batch report',
+          });
+        }
+      }
+
+      const executionTotal = report.execution?.total ?? 0;
+      const executionPassed = report.execution?.passed ?? 0;
+      const executionFailed = report.execution?.failed ?? 0;
+      if (report.execution?.enabled && executionPassed + executionFailed !== executionTotal) {
+        issues.push({
+          code: 'invalid-execution-report',
+          message: 'Execution report totals are inconsistent',
+        });
+      }
+
+      const allureResultsDir = path.join(finalDir, 'allure-results');
+      const allureReportDir = path.join(finalDir, 'allure-report');
+
+      if (report.allure?.resultsGenerated && !fs.existsSync(allureResultsDir)) {
+        issues.push({
+          code: 'missing-allure-results',
+          message: 'Allure results are marked as generated but allure-results/ is missing',
+        });
+      }
+
+      if (!report.allure?.resultsGenerated && fs.existsSync(allureResultsDir)) {
+        issues.push({
+          code: 'unexpected-allure-results',
+          message: 'allure-results/ exists but the report says resultsGenerated=false',
+        });
+      }
+
+      if (report.allure?.reportGenerated && !fs.existsSync(allureReportDir)) {
+        issues.push({
+          code: 'missing-allure-report',
+          message: 'Allure HTML report is marked as generated but allure-report/ is missing',
+        });
+      }
+
+      if (!report.allure?.reportGenerated && fs.existsSync(allureReportDir)) {
+        issues.push({
+          code: 'unexpected-allure-report',
+          message: 'allure-report/ exists but the report says reportGenerated=false',
+        });
+      }
+    }
+
+    if (issues.length > 0) {
+      throw new Error(issues.map((issue) => issue.message).join('\n'));
+    }
   }
 
   private collectForbiddenArtifacts(finalDir: string, issues: QualityGateIssue[]): void {

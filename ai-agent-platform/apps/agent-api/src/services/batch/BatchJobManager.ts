@@ -279,6 +279,11 @@ export class BatchJobManager {
         JSON.stringify(report, null, 2),
       );
 
+      this.merger.validateZipReadiness(finalDir, {
+        executionMode: job.executionMode,
+        report,
+      });
+
       job.setStatus(report.status === 'failed' ? 'failed' : 'completed');
       log(`Job finished — ${report.status.toUpperCase()} (${report.passed}/${report.totalCases} passed)`);
       logger.info('Job completed', {

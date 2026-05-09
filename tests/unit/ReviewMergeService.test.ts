@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractTestBlocks,
+  inferPageKeyFromText,
   mergeLocatorEntries,
   reconcileSpecDataReferences,
 } from '../../ai-agent-platform/apps/agent-api/src/services/batch/ReviewMergeService';
@@ -262,6 +263,27 @@ describe('mergeLocatorEntries', () => {
     const result = mergeLocatorEntries(entries);
     expect(result).toHaveLength(1);
     expect(result[0].confidenceScore).toBe(0.9);
+  });
+});
+
+describe('inferPageKeyFromText', () => {
+  it('keeps login responsibilities on LoginPage', () => {
+    expect(inferPageKeyFromText('enterUsername await this.page.getByRole("textbox", { name: "Username" }).fill(value);', 'login'))
+      .toBe('login');
+    expect(inferPageKeyFromText('clickLogin await this.page.getByRole("button", { name: "Login" }).click();', 'general'))
+      .toBe('login');
+  });
+
+  it('moves product and cart-badge behavior to ProductsPage responsibility', () => {
+    expect(inferPageKeyFromText('clickAddToCartForFirstProduct await this.page.locator("#add-to-cart-first-product").click();', 'login'))
+      .toBe('products');
+    expect(inferPageKeyFromText('expectCartBadgeCount shopping cart badge', 'login'))
+      .toBe('products');
+  });
+
+  it('moves checkout and cart-content behavior to CartPage responsibility', () => {
+    expect(inferPageKeyFromText('open cart contents and proceed to checkout', 'products'))
+      .toBe('cart');
   });
 });
 

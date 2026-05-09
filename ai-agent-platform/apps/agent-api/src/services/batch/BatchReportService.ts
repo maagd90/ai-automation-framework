@@ -110,19 +110,24 @@ export class BatchReportService {
     const executionFailedCount = playwrightCounts?.failed ?? (executionEnabled && executionFailed ? totalCases : 0);
     const executionTotalCount = playwrightCounts?.total ?? (executionEnabled ? totalCases : 0);
 
+    const generationSummary = `Generation ${generationPassed}/${totalCases} passed`;
+    const executionSummary = executionEnabled
+      ? `Execution ${executionPassedCount}/${executionTotalCount} passed (exitCode ${executionExitCode})`
+      : undefined;
+
     let summary: string;
     if (status === 'passed') {
-      summary =
-        executionMode === 'generate-and-execute'
-          ? `All ${totalCases} test case(s) generated and executed successfully.`
-          : `All ${totalCases} test case(s) generated successfully.`;
+      summary = executionSummary
+        ? `${generationSummary}. ${executionSummary}.`
+        : `${generationSummary}.`;
     } else if (status === 'failed') {
-      summary =
-        generationPassed === 0
-          ? `All ${totalCases} test case(s) failed during generation.`
-          : `Generation succeeded but test execution failed.`;
+      summary = executionSummary
+        ? `${generationSummary}. ${executionSummary}.`
+        : `${generationSummary}.`;
     } else {
-      summary = `${generationPassed} of ${totalCases} test case(s) generated successfully; ${generationFailed} failed.`;
+      summary = executionSummary
+        ? `${generationSummary}. ${executionSummary}.`
+        : `${generationSummary}.`;
     }
 
     const report: BatchReport = {
