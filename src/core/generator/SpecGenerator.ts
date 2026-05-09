@@ -152,7 +152,7 @@ ${testBody}
       if (normalized.includes('invalid') || normalized.includes('error') || normalized.includes('denied') || normalized.includes('failed')) {
         lines.push("await expect(page.locator(\"[role='alert'], [aria-live], [data-test*='error'], .error, .alert-error\")).toBeVisible();");
         if (normalized.includes('login')) {
-          lines.push('await expect(page).toHaveURL(/login|sign-?in|auth|\\/$/i);');
+          lines.push('await expect(page).toHaveURL(/\\/(?:login|sign-?in|auth)?\\/?$/i);');
         }
         continue;
       }

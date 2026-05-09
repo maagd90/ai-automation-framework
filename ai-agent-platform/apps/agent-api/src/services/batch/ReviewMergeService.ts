@@ -211,7 +211,7 @@ function extractLocatorStrategy(methodBody: string): string {
  *  - goto() is excluded from the methods list (re-generated later).
  */
 function parsePomSource(source: string): ParsedPom | null {
-  const classMatch = source.match(/export class (\w+)\s*\{/);
+  const classMatch = source.match(/export class ([A-Z][A-Za-z0-9]*)\s*\{/);
   if (!classMatch) return null;
   const className = classMatch[1];
   const featureKey = classNameToFeatureKey(className);
@@ -1056,7 +1056,9 @@ export class ReviewMergeService {
         matcher.test(`${entry.name ?? ''} ${entry.target ?? ''} ${entry.selector ?? ''}`.toLowerCase()),
       );
       if (!matchedLocator) return undefined;
-      const locatorExpression = matchedLocator.selector.replace(/\bpage\./g, 'this.page.');
+      const locatorExpression = matchedLocator.selector.startsWith('this.page.')
+        ? matchedLocator.selector
+        : matchedLocator.selector.replace(/\bpage\./g, 'this.page.');
       const baseField = this.toLocatorFieldName(matchedLocator.name || fallbackName);
       return reserveField(baseField, locatorExpression, `${matchedLocator.name ?? ''} ${matchedLocator.target ?? ''}`.toLowerCase());
     };
@@ -1219,7 +1221,7 @@ ${uniqueBlocks.join('\n\n')}
     rewritten = rewritten.replace(/^\s*await expect\(page\)\.not\.toHaveURL\(\/login\/i\);\s*$/gm, () => {
       if (invalidScenario) {
         importClasses.add('LoginPage');
-        return `  await ${loginPageVar}.expectLoginErrorVisible();\n  await expect(page).toHaveURL(/login|sign-?in|auth|\\/$/i);`;
+        return `  await ${loginPageVar}.expectLoginErrorVisible();\n  await expect(page).toHaveURL(/\\/(?:login|sign-?in|auth)?\\/?$/i);`;
       }
 
       if (usesProductsPage) {
@@ -1282,7 +1284,7 @@ ${uniqueBlocks.join('\n\n')}
       JSON.stringify({
         name: pkgJson.name,
         version: pkgJson.version,
-        lockfileVersion: 3,
+        lockfileVersion: 2,
         requires: true,
         packages: {
           '': {
