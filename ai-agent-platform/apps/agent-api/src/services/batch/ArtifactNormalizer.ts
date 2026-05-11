@@ -38,6 +38,13 @@ function featureKeyFromClassName(className: string): string {
   return className.replace(/Page$/, '').replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase() || 'home';
 }
 
+/**
+ * Playwright action methods that imply a locator is being interacted with.
+ * Used to detect `await this.fieldName.action(...)` references in method bodies
+ * so the locator field can be propagated through the merge pipeline.
+ */
+const PLAYWRIGHT_ACTION_METHODS = 'fill|click|waitFor|selectOption|check|uncheck|innerText';
+
 function extractMethods(source: string): NormalizedMethod[] {
   // Extract private readonly locator field declarations so methods that reference
   // `this.fieldName` can carry the original locator expression through the merge pipeline.
@@ -69,7 +76,7 @@ function extractMethods(source: string): NormalizedMethod[] {
     // Detect which private locator field this method references (e.g. `this.usernameInputLocator`)
     // so the merge pipeline can re-create the corresponding `private readonly` declaration.
     const fieldRefMatch = body.match(
-      /await\s+this\.(\w+)\.(fill|click|waitFor|selectOption|check|uncheck|innerText)\(/,
+      new RegExp(`await\\s+this\\.(\\w+)\\.(${PLAYWRIGHT_ACTION_METHODS})\\(`),
     );
     const locatorField = fieldRefMatch?.[1];
     const locatorExpression = locatorField ? fieldMap.get(locatorField) : undefined;

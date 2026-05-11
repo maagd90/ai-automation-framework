@@ -78,6 +78,20 @@ interface PageBucket {
 // Locator strategy priority for deduplication (higher = preferred)
 // ---------------------------------------------------------------------------
 
+/**
+ * Playwright action methods that indicate a locator is being interacted with.
+ * Shared with ArtifactNormalizer so both use the same detection pattern.
+ */
+const PLAYWRIGHT_ACTION_METHODS = 'fill|click|waitFor|selectOption|check|uncheck|innerText';
+
+/**
+ * Escapes a string for safe use inside a `RegExp` constructor.
+ * Used when building dynamic regular expressions from user-controlled values.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const LOCATOR_PRIORITY: Record<string, number> = {
   getByTestId: 5,
   getByRole: 4,
@@ -1044,8 +1058,6 @@ export class ReviewMergeService {
       return fieldName;
     };
 
-    const escapeRegExpStr = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
     const renderedMethods: string[] = Array.from(methodMap.values()).map((method) => {
       const methodBody = method.body;
 
@@ -1063,7 +1075,7 @@ export class ReviewMergeService {
         );
         // Replace all references to the old field name with the canonical (possibly
         // de-duplicated) field name so the method body stays consistent.
-        const fieldRefRe = new RegExp(`\\bthis\\.${escapeRegExpStr(method.locatorField)}\\b`, 'g');
+        const fieldRefRe = new RegExp(`\\bthis\\.${escapeRegExp(method.locatorField)}\\b`, 'g');
         return methodBody.replace(fieldRefRe, `this.${fieldName}`);
       }
 
@@ -1528,7 +1540,7 @@ Allure results are generated under \`allure-results/\` and the HTML report under
   private extractLocatorExpression(methodBody: string): { locatorExpression: string; methodNameHint: string } | null {
     const signatureMatch = methodBody.match(/async (\w+)\(/);
     const methodNameHint = signatureMatch?.[1] ?? 'element';
-    const actionPattern = /await\s+(this\.page\.[\s\S]*?)\.(fill|click|waitFor|selectOption|check|uncheck|innerText)\(/;
+    const actionPattern = new RegExp(`await\\s+(this\\.page\\.[\\s\\S]*?)\\.(${PLAYWRIGHT_ACTION_METHODS})\\(`);
     const match = methodBody.match(actionPattern);
     if (!match?.[1]) return null;
     return { locatorExpression: match[1].trim(), methodNameHint };
