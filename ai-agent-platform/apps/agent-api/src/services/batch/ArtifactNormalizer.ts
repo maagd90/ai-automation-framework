@@ -42,8 +42,10 @@ function featureKeyFromClassName(className: string): string {
 function extractMethods(source: string): NormalizedMethod[] {
   // Extract private readonly locator field declarations so methods that reference
   // `this.fieldName` can carry the original locator expression through the merge pipeline.
+  // The pattern stops at the first `;` (not at newlines) so it handles rare cases where
+  // a locator argument is spread across lines (e.g. multi-line getByRole options).
   const fieldMap = new Map<string, string>();
-  const fieldDeclPattern = /^\s+private readonly (\w+)\s*=\s*(this\.page\.[^;\n]+);/gm;
+  const fieldDeclPattern = /^\s+private readonly (\w+)\s*=\s*(this\.page\.[^;]+?)\s*;/gm;
   let fieldMatch: RegExpExecArray | null;
   while ((fieldMatch = fieldDeclPattern.exec(source)) !== null) {
     fieldMap.set(fieldMatch[1].trim(), fieldMatch[2].trim());

@@ -1060,9 +1060,14 @@ export class ReviewMergeService {
       // the normalized-artifact.json or from raw TypeScript field parsing), use it
       // directly to define the `private readonly` field without re-parsing the body.
       if (method.locatorField && method.locatorExpression) {
-        const expr = method.locatorExpression.startsWith('this.page.')
-          ? method.locatorExpression
-          : method.locatorExpression.replace(/^page\./, 'this.page.');
+        // Normalise the expression to the `this.page.xxx` form used inside a class body.
+        // The normalized-artifact.json stores `this.page.xxx` (from PageObjectGenerator)
+        // but the LocatorArtifactParser stores the shorter `page.xxx` form.
+        // Any other format is passed through unchanged as a safe fallback.
+        let expr = method.locatorExpression;
+        if (!expr.startsWith('this.page.') && expr.startsWith('page.')) {
+          expr = `this.${expr}`;
+        }
         const fieldName = reserveField(
           method.locatorField,
           expr,
