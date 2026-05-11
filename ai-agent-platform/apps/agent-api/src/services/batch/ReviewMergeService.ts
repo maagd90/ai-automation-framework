@@ -21,6 +21,18 @@ interface ParsedMethod {
   body: string;
   /** Locator strategy extracted from the method body (used for confidence scoring) */
   locatorStrategy: string;
+  /**
+   * Optional: the private readonly field name that the method body references
+   * (e.g. 'usernameInputLocator'). Propagated from the normalized-artifact.json
+   * so that the merge pipeline can re-create the field declaration.
+   */
+  locatorField?: string;
+  /**
+   * Optional: the Playwright locator expression assigned to the private readonly field
+   * (e.g. 'this.page.getByRole("textbox", { name: "Username" })'). Propagated alongside
+   * locatorField from the normalized-artifact.json.
+   */
+  locatorExpression?: string;
 }
 
 interface ParsedPom {
@@ -1016,8 +1028,6 @@ export class ReviewMergeService {
       }
     }
 
-    const methodsBlock = Array.from(methodMap.values())
-      .map((m) => m.body);
 
     const usedFieldNames = new Set<string>();
     const locatorFieldLines: string[] = [];
@@ -1033,7 +1043,30 @@ export class ReviewMergeService {
       if (semanticHint) semanticFields.set(semanticHint, fieldName);
       return fieldName;
     };
-    const renderedMethods: string[] = methodsBlock.map((methodBody) => {
+
+    const escapeRegExpStr = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const renderedMethods: string[] = Array.from(methodMap.values()).map((method) => {
+      const methodBody = method.body;
+
+      // When the method carries pre-attached locator metadata (propagated from
+      // the normalized-artifact.json or from raw TypeScript field parsing), use it
+      // directly to define the `private readonly` field without re-parsing the body.
+      if (method.locatorField && method.locatorExpression) {
+        const expr = method.locatorExpression.startsWith('this.page.')
+          ? method.locatorExpression
+          : method.locatorExpression.replace(/^page\./, 'this.page.');
+        const fieldName = reserveField(
+          method.locatorField,
+          expr,
+          `${method.name.toLowerCase()} ${method.locatorField.toLowerCase()}`,
+        );
+        // Replace all references to the old field name with the canonical (possibly
+        // de-duplicated) field name so the method body stays consistent.
+        const fieldRefRe = new RegExp(`\\bthis\\.${escapeRegExpStr(method.locatorField)}\\b`, 'g');
+        return methodBody.replace(fieldRefRe, `this.${fieldName}`);
+      }
+
       const extraction = this.extractLocatorExpression(methodBody);
       if (!extraction) return methodBody;
 

@@ -1,4 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// archiver is a native Node add-on only available in the platform workspace.
+// shouldExcludeZipEntry is a pure function that does not use archiver at all,
+// so mocking the module is sufficient to allow the import to resolve cleanly.
+vi.mock('archiver', () => ({
+  default: () => ({
+    on: vi.fn(),
+    pipe: vi.fn(),
+    directory: vi.fn(),
+    finalize: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
 import { shouldExcludeZipEntry } from '../../ai-agent-platform/apps/agent-api/src/services/ZipService';
 
 describe('ZipService exclusion rules', () => {

@@ -6,6 +6,10 @@ export interface NormalizedMethod {
   name: string;
   body: string;
   locatorStrategy: string;
+  /** Locator field name referenced in the method body (e.g. 'usernameInputLocator') */
+  locatorField?: string;
+  /** Locator expression for the field (e.g. 'this.page.getByRole(...)') */
+  locatorExpression?: string;
 }
 
 export interface NormalizedPageModel {
@@ -35,6 +39,15 @@ function featureKeyFromClassName(className: string): string {
 }
 
 function extractMethods(source: string): NormalizedMethod[] {
+  // Extract private readonly locator field declarations so methods that reference
+  // `this.fieldName` can carry the original locator expression through the merge pipeline.
+  const fieldMap = new Map<string, string>();
+  const fieldDeclPattern = /^\s+private readonly (\w+)\s*=\s*(this\.page\.[^;\n]+);/gm;
+  let fieldMatch: RegExpExecArray | null;
+  while ((fieldMatch = fieldDeclPattern.exec(source)) !== null) {
+    fieldMap.set(fieldMatch[1].trim(), fieldMatch[2].trim());
+  }
+
   const methods: NormalizedMethod[] = [];
   const sigPattern = /^\s+async (\w+)\([^)]*\): Promise<[^>]+> \{/gm;
   let match: RegExpExecArray | null;
@@ -52,7 +65,16 @@ function extractMethods(source: string): NormalizedMethod[] {
     const body = source.slice(match.index, cursor).trim();
     const locatorStrategy = ['getByTestId', 'getByRole', 'getByLabel', 'getByPlaceholder', 'getByText']
       .find((strategy) => body.includes(strategy)) ?? 'locator';
-    methods.push({ name, body, locatorStrategy });
+
+    // Detect which private locator field this method references (e.g. `this.usernameInputLocator`)
+    // so the merge pipeline can re-create the corresponding `private readonly` declaration.
+    const fieldRefMatch = body.match(
+      /await\s+this\.(\w+)\.(fill|click|waitFor|selectOption|check|uncheck|innerText)\(/,
+    );
+    const locatorField = fieldRefMatch?.[1];
+    const locatorExpression = locatorField ? fieldMap.get(locatorField) : undefined;
+
+    methods.push({ name, body, locatorStrategy, locatorField, locatorExpression });
   }
 
   return methods;
