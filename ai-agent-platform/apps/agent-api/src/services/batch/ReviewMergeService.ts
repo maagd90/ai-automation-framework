@@ -9,6 +9,7 @@ import { ArtifactNormalizer } from './ArtifactNormalizer';
 import { FrameworkQualityGate } from './FrameworkQualityGate';
 import { FrameworkSelfRepairLoop } from './FrameworkSelfRepairLoop';
 import { TestDataMergeService } from './TestDataMergeService';
+import { PLAYWRIGHT_ACTION_METHODS } from './locatorConstants';
 
 // ---------------------------------------------------------------------------
 // Internal data structures for parsed generated artefacts
@@ -77,12 +78,6 @@ interface PageBucket {
 // ---------------------------------------------------------------------------
 // Locator strategy priority for deduplication (higher = preferred)
 // ---------------------------------------------------------------------------
-
-/**
- * Playwright action methods that indicate a locator is being interacted with.
- * Shared with ArtifactNormalizer so both use the same detection pattern.
- */
-const PLAYWRIGHT_ACTION_METHODS = 'fill|click|waitFor|selectOption|check|uncheck|innerText';
 
 /**
  * Escapes a string for safe use inside a `RegExp` constructor.

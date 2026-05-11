@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { LocatorArtifactParser, type LocatorEntry } from './LocatorArtifactParser';
+import { PLAYWRIGHT_ACTION_METHODS } from './locatorConstants';
 
 export interface NormalizedMethod {
   name: string;
@@ -37,13 +38,6 @@ function featureKeyFromClassName(className: string): string {
   // key used by the merge pipeline (login).
   return className.replace(/Page$/, '').replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase() || 'home';
 }
-
-/**
- * Playwright action methods that imply a locator is being interacted with.
- * Used to detect `await this.fieldName.action(...)` references in method bodies
- * so the locator field can be propagated through the merge pipeline.
- */
-const PLAYWRIGHT_ACTION_METHODS = 'fill|click|waitFor|selectOption|check|uncheck|innerText';
 
 function extractMethods(source: string): NormalizedMethod[] {
   // Extract private readonly locator field declarations so methods that reference
