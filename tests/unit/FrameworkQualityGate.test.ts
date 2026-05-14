@@ -123,7 +123,7 @@ test('Login with valid credentials', async ({ page }) => {
     expect(() => gate.validateZipReadiness(dir, {})).toThrow(/Forbidden artifact found/);
   });
 
-  it('fails validation when tsconfig.json or README.md is missing', () => {
+  it('fails validation when tsconfig.json is missing', () => {
     const dir = createProject();
     fs.rmSync(path.join(dir, 'tsconfig.json'));
     fs.writeFileSync(path.join(dir, 'src/tests/login.spec.ts'), `
@@ -137,6 +137,22 @@ test('Login with valid credentials', async ({ page }) => {
     const gate = new FrameworkQualityGate();
 
     expect(() => gate.validate(dir, () => undefined)).toThrow(/tsconfig\.json/);
+  });
+
+  it('fails validation when README.md is missing', () => {
+    const dir = createProject();
+    fs.rmSync(path.join(dir, 'README.md'));
+    fs.writeFileSync(path.join(dir, 'src/tests/login.spec.ts'), `
+import { LoginPage } from '../pages/LoginPage';
+import loginData from '../test-data/login.data.json';
+test('Login with valid credentials', async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.enterUsername(loginData.validUser.username);
+});
+`);
+    const gate = new FrameworkQualityGate();
+
+    expect(() => gate.validate(dir, () => undefined)).toThrow(/README\.md/);
   });
 
   it('fails zip readiness when execution or allure status is inconsistent with artifacts', () => {
