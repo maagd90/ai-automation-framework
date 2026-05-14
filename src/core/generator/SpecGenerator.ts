@@ -158,14 +158,14 @@ ${testBody}
       }
 
       if (normalized.includes('cart') || normalized.includes('badge') || normalized.includes('add to cart')) {
-        lines.push("await expect(page.locator(\"[data-test='shopping-cart-badge'], .shopping_cart_badge, [aria-label*='cart' i]\")).toBeVisible();");
-        lines.push("await expect(page.locator(\"[data-test='shopping-cart-badge'], .shopping_cart_badge, [aria-label*='cart' i]\")).toHaveText('1');");
+        lines.push("await expect(page.locator(\"[data-test*='cart-badge'], [class*='cart_badge'], [aria-label*='cart' i]\")).toBeVisible();");
+        lines.push("await expect(page.locator(\"[data-test*='cart-badge'], [class*='cart_badge'], [aria-label*='cart' i]\")).toHaveText('1');");
         continue;
       }
 
       if (normalized.includes('inventory') || normalized.includes('product') || normalized.includes('dashboard') || normalized.includes('successful')) {
         lines.push('await expect(page).toHaveURL(/inventory|product|dashboard/i);');
-        lines.push("await expect(page.locator(\"h1, h2, [data-test='title'], .title\")).toBeVisible();");
+        lines.push("await expect(page.locator(\"h1, h2, [role='heading']\")).toBeVisible();");
         continue;
       }
 

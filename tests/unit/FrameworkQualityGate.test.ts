@@ -26,6 +26,8 @@ describe('FrameworkQualityGate', () => {
       },
     }, null, 2));
     fs.writeFileSync(path.join(dir, 'playwright.config.ts'), "export default { reporter: [ ['line'], ['html', { open: 'never' }], ['allure-playwright'] ] };");
+    fs.writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' } }, null, 2));
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Generated Playwright Project\n');
     fs.writeFileSync(path.join(dir, 'src/pages/LoginPage.ts'), 'export class LoginPage {\n  async goto(): Promise<void> { return; }\n  async enterUsername(value: string): Promise<void> { return; }\n}\n');
     fs.writeFileSync(path.join(dir, 'src/test-data/login.data.json'), JSON.stringify({ validUser: { username: 'standard_user' } }, null, 2));
     fs.writeFileSync(path.join(dir, 'src/locators/login.locators.json'), JSON.stringify({
@@ -97,6 +99,44 @@ test('Login with valid credentials', async ({ page }) => {
     const gate = new FrameworkQualityGate();
 
     expect(() => gate.validateZipReadiness(dir, {})).toThrow(/Forbidden artifact found/);
+  });
+
+  it('fails zip readiness when coverage/ or dist/ directories exist', () => {
+    const dir = createProject();
+    fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'reports', 'batch-execution-report.json'), JSON.stringify({ status: 'passed' }, null, 2));
+    fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+
+    const gate = new FrameworkQualityGate();
+
+    expect(() => gate.validateZipReadiness(dir, {})).toThrow(/Forbidden artifact found/);
+  });
+
+  it('fails zip readiness when .tsbuildinfo files exist', () => {
+    const dir = createProject();
+    fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'reports', 'batch-execution-report.json'), JSON.stringify({ status: 'passed' }, null, 2));
+    fs.writeFileSync(path.join(dir, 'tsconfig.tsbuildinfo'), '{}');
+
+    const gate = new FrameworkQualityGate();
+
+    expect(() => gate.validateZipReadiness(dir, {})).toThrow(/Forbidden artifact found/);
+  });
+
+  it('fails validation when tsconfig.json or README.md is missing', () => {
+    const dir = createProject();
+    fs.rmSync(path.join(dir, 'tsconfig.json'));
+    fs.writeFileSync(path.join(dir, 'src/tests/login.spec.ts'), `
+import { LoginPage } from '../pages/LoginPage';
+import loginData from '../test-data/login.data.json';
+test('Login with valid credentials', async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.enterUsername(loginData.validUser.username);
+});
+`);
+    const gate = new FrameworkQualityGate();
+
+    expect(() => gate.validate(dir, () => undefined)).toThrow(/tsconfig\.json/);
   });
 
   it('fails zip readiness when execution or allure status is inconsistent with artifacts', () => {

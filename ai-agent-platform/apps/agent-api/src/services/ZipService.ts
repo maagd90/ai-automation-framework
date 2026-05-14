@@ -21,6 +21,8 @@ const ZIP_EXCLUDED_TOP_LEVEL = new Set([
   '.idea',
   '.vscode',
   '__MACOSX',
+  'coverage',
+  'dist',
 ]);
 
 const ZIP_EXCLUDED_FILE_NAMES = new Set(['.last-run.json', '.DS_Store']);
@@ -36,6 +38,7 @@ export function shouldExcludeZipEntry(entryName: string): boolean {
   const leaf = segments[segments.length - 1];
   if (ZIP_EXCLUDED_FILE_NAMES.has(leaf)) return true;
   if (leaf.endsWith('.iml')) return true;
+  if (leaf.endsWith('.tsbuildinfo')) return true;
 
   return false;
 }

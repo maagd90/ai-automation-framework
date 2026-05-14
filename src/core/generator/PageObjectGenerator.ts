@@ -56,18 +56,19 @@ export class PageObjectGenerator {
       .join('\n');
     const methods = model.methods.map((method) => method.body).join('\n\n');
     return `import { type Page } from '@playwright/test';
-import { waitForPageLoad } from '../utils/wait.util';
+import { BasePage } from './BasePage';
 
-export class ${model.className} {
-  constructor(private readonly page: Page) {}
+export class ${model.className} extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
 
 ${locatorFields}
 
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(model.routePath)});
-    await waitForPageLoad(this.page);
+    await this.gotoPath(${this.renderStringLiteral(model.routePath)});
   }
 }
 `;

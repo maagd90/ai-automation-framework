@@ -25,6 +25,8 @@ export class FrameworkQualityGate {
     '.idea',
     '.vscode',
     '__MACOSX',
+    'coverage',
+    'dist',
   ]);
 
   private readonly forbiddenFileNames = new Set(['.last-run.json', '.DS_Store']);
@@ -35,7 +37,7 @@ export class FrameworkQualityGate {
     const pagesDir = path.join(finalDir, 'src', 'pages');
     const locatorsDir = path.join(finalDir, 'src', 'locators');
 
-    for (const required of [path.join(finalDir, 'package.json'), path.join(finalDir, 'playwright.config.ts'), testsDir]) {
+    for (const required of [path.join(finalDir, 'package.json'), path.join(finalDir, 'playwright.config.ts'), path.join(finalDir, 'tsconfig.json'), path.join(finalDir, 'README.md'), testsDir]) {
       if (!fs.existsSync(required)) {
         issues.push({ code: 'missing-required-file', message: `Missing required file: ${required}` });
       }
@@ -283,7 +285,7 @@ export class FrameworkQualityGate {
           continue;
         }
 
-        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml')) {
+        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml') || entry.name.endsWith('.tsbuildinfo')) {
           issues.push({
             code: 'forbidden-zip-artifact',
             message: `Forbidden artifact found in generated project: ${relative}`,

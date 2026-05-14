@@ -21,12 +21,16 @@ describe('ZipService exclusion rules', () => {
     expect(shouldExcludeZipEntry('test-results/results.json')).toBe(true);
     expect(shouldExcludeZipEntry('.idea/workspace.xml')).toBe(true);
     expect(shouldExcludeZipEntry('__MACOSX/._foo')).toBe(true);
+    expect(shouldExcludeZipEntry('coverage/lcov.info')).toBe(true);
+    expect(shouldExcludeZipEntry('dist/index.js')).toBe(true);
   });
 
   it('excludes forbidden files and patterns', () => {
     expect(shouldExcludeZipEntry('.last-run.json')).toBe(true);
     expect(shouldExcludeZipEntry('nested/.DS_Store')).toBe(true);
     expect(shouldExcludeZipEntry('project/app.iml')).toBe(true);
+    expect(shouldExcludeZipEntry('tsconfig.tsbuildinfo')).toBe(true);
+    expect(shouldExcludeZipEntry('src/tsconfig.app.tsbuildinfo')).toBe(true);
   });
 
   it('allows expected generated artifacts', () => {
