@@ -29,6 +29,7 @@ export class FrameworkQualityGate {
     'dist',
     // Webwright sidecar and Python runtime artifacts
     'webwright-sidecar',
+    'webwright',
     '.venv',
     'venv',
     '__pycache__',
@@ -290,7 +291,15 @@ export class FrameworkQualityGate {
           continue;
         }
 
-        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml') || entry.name.endsWith('.tsbuildinfo') || entry.name.endsWith('.pyc') || entry.name.endsWith('.pyo')) {
+        if (
+          this.forbiddenFileNames.has(entry.name)
+          || entry.name.endsWith('.iml')
+          || entry.name.endsWith('.tsbuildinfo')
+          || entry.name.endsWith('.pyc')
+          || entry.name.endsWith('.pyo')
+          || /^raw[-_]?trajectory/i.test(entry.name)
+          || /^raw[-_]?screenshot/i.test(entry.name)
+        ) {
           issues.push({
             code: 'forbidden-zip-artifact',
             message: `Forbidden artifact found in generated project: ${relative}`,

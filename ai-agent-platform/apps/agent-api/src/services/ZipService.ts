@@ -25,6 +25,7 @@ const ZIP_EXCLUDED_TOP_LEVEL = new Set([
   'dist',
   // Webwright sidecar — must never be included in the user ZIP
   'webwright-sidecar',
+  'webwright',
   // Python virtual environment and cache directories
   '.venv',
   'venv',
@@ -47,6 +48,8 @@ export function shouldExcludeZipEntry(entryName: string): boolean {
   if (leaf.endsWith('.tsbuildinfo')) return true;
   if (leaf.endsWith('.pyc')) return true;
   if (leaf.endsWith('.pyo')) return true;
+  if (/^raw[-_]?trajectory/i.test(leaf)) return true;
+  if (/^raw[-_]?screenshot/i.test(leaf)) return true;
 
   return false;
 }

@@ -23,6 +23,7 @@ describe('ZipService exclusion rules', () => {
     expect(shouldExcludeZipEntry('__MACOSX/._foo')).toBe(true);
     expect(shouldExcludeZipEntry('coverage/lcov.info')).toBe(true);
     expect(shouldExcludeZipEntry('dist/index.js')).toBe(true);
+    expect(shouldExcludeZipEntry('webwright/output/result.json')).toBe(true);
   });
 
   it('excludes forbidden files and patterns', () => {
@@ -31,6 +32,8 @@ describe('ZipService exclusion rules', () => {
     expect(shouldExcludeZipEntry('project/app.iml')).toBe(true);
     expect(shouldExcludeZipEntry('tsconfig.tsbuildinfo')).toBe(true);
     expect(shouldExcludeZipEntry('src/tsconfig.app.tsbuildinfo')).toBe(true);
+    expect(shouldExcludeZipEntry('raw-trajectory.json')).toBe(true);
+    expect(shouldExcludeZipEntry('raw_screenshot.png')).toBe(true);
   });
 
   it('allows expected generated artifacts', () => {

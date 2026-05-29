@@ -149,28 +149,28 @@ def main() -> None:
 
     input_path = Path(args.input).resolve()
     output_dir = Path(args.output_dir).resolve()
-    tmp_root = Path("/tmp").resolve()
+    safe_root = Path("/tmp/jobs/webwright").resolve()
 
-    if not input_path.is_relative_to(tmp_root) or not output_dir.is_relative_to(tmp_root):
+    if not input_path.is_relative_to(safe_root) or not output_dir.is_relative_to(safe_root):
         print(json.dumps(empty_result("failed", "unknown", "Unsafe path rejected", [])))
         sys.exit(1)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-      payload = json.loads(input_path.read_text())
+        payload = json.loads(input_path.read_text())
     except Exception as exc:  # noqa: BLE001
-      result = empty_result("failed", "unknown", f"Failed to read input file: {exc}", [str(exc)])
-      (output_dir / "result.json").write_text(json.dumps(result, indent=2))
-      print(json.dumps(result))
-      sys.exit(1)
+        result = empty_result("failed", "unknown", f"Failed to read input file: {exc}", [str(exc)])
+        (output_dir / "result.json").write_text(json.dumps(result, indent=2))
+        print(json.dumps(result))
+        sys.exit(1)
 
     target_url = str(payload.get("targetUrl", ""))
     if not target_url:
-      result = empty_result("failed", "unknown", "No targetUrl provided in input payload", [])
-      (output_dir / "result.json").write_text(json.dumps(result, indent=2))
-      print(json.dumps(result))
-      sys.exit(1)
+        result = empty_result("failed", "unknown", "No targetUrl provided in input payload", [])
+        (output_dir / "result.json").write_text(json.dumps(result, indent=2))
+        print(json.dumps(result))
+        sys.exit(1)
 
     result = explore(target_url, payload, output_dir)
     (output_dir / "result.json").write_text(json.dumps(result, indent=2))

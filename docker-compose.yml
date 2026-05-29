@@ -27,6 +27,14 @@ services:
       ENABLE_AI_PROVIDERS: 'true'
       ENABLE_LOCAL_LLM: 'false'
       ENABLE_TRACE_VIDEO: 'false'
+      ENABLE_WEBWRIGHT: ${ENABLE_WEBWRIGHT:-false}
+      WEBWRIGHT_MODE: ${WEBWRIGHT_MODE:-repair}
+      WEBWRIGHT_TIMEOUT_SECONDS: ${WEBWRIGHT_TIMEOUT_SECONDS:-180}
+      WEBWRIGHT_MAX_REPAIR_ATTEMPTS: ${WEBWRIGHT_MAX_REPAIR_ATTEMPTS:-1}
+      WEBWRIGHT_MIN_CONFIDENCE: ${WEBWRIGHT_MIN_CONFIDENCE:-0.75}
+      WEBWRIGHT_DOCKER_ONLY: "true"
+      WEBWRIGHT_OUTPUT_DIR: /tmp/jobs/webwright
+      WEBWRIGHT_ALLOWED_DOMAINS: ${WEBWRIGHT_ALLOWED_DOMAINS:-}
       # CORS — allow the UI container (accessed from the host browser)
       ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
       JOBS_DIR: /tmp/jobs
@@ -50,6 +58,28 @@ services:
       retries: 3
       start_period: 20s
 
+  webwright:
+    build:
+      context: .
+      dockerfile: webwright-sidecar/Dockerfile
+    image: webwright-sidecar:local
+    container_name: webwright-sidecar
+    profiles:
+      - webwright
+    environment:
+      WEBWRIGHT_TIMEOUT_SECONDS: ${WEBWRIGHT_TIMEOUT_SECONDS:-180}
+      WEBWRIGHT_OUTPUT_DIR: /tmp/jobs/webwright
+      WEBWRIGHT_DOCKER_ONLY: "true"
+    volumes:
+      - ai-agent-jobs:/tmp/jobs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import webwright; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
   # ── UI (React + nginx) ────────────────────────────────────────────────────────
   # nginx serves the built React SPA and proxies /api requests to the API
   # container, so the browser's relative /api calls are forwarded correctly
@@ -68,4 +98,3 @@ services:
 
 volumes:
   ai-agent-jobs:
-

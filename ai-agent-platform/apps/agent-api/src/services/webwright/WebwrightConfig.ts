@@ -30,7 +30,7 @@ export const webwrightConfig = {
   WEBWRIGHT_TIMEOUT_SECONDS: resolvePositiveInt(process.env.WEBWRIGHT_TIMEOUT_SECONDS, 180),
 
   /** How many times repair mode may retry before giving up. */
-  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: resolvePositiveInt(process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS, 2),
+  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: resolvePositiveInt(process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS, 1),
 
   /** Minimum confidence required before a suggestion is considered. */
   WEBWRIGHT_MIN_CONFIDENCE: Number(process.env.WEBWRIGHT_MIN_CONFIDENCE ?? 0.75),

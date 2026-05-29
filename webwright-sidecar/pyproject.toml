@@ -20,4 +20,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["webwright_sidecar*"]
+include = ["webwright*", "webwright_sidecar*"]

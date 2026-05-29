@@ -5,6 +5,8 @@
 # Usage:
 #   ./scripts/deploy.sh          Normal deploy
 #   ./scripts/deploy.sh --clean  Clean rebuild, removes Docker volumes
+#   ./scripts/deploy.sh --webwright  Enable the optional Webwright sidecar
+#   ./scripts/deploy.sh --clean --webwright  Clean rebuild with Webwright
 #   ./scripts/deploy.sh --help   Show help
 #
 # What it does (normal mode):
@@ -51,6 +53,7 @@ error()   { echo -e "${RED}[ERROR]${NC}   $*" >&2; }
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 CLEAN_MODE=false
+WEBWRIGHT_MODE_ENABLED=false
 
 for arg in "$@"; do
   case "${arg}" in
@@ -59,6 +62,8 @@ for arg in "$@"; do
       echo "Usage:"
       echo "  ./scripts/deploy.sh          Normal deploy"
       echo "  ./scripts/deploy.sh --clean  Clean rebuild, removes Docker volumes"
+      echo "  ./scripts/deploy.sh --webwright  Enable the optional Webwright sidecar"
+      echo "  ./scripts/deploy.sh --clean --webwright  Clean rebuild with Webwright"
       echo "  ./scripts/deploy.sh --help   Show help"
       echo ""
       echo "Normal deploy:"
@@ -66,6 +71,7 @@ for arg in "$@"; do
       echo "  - docker image prune -f"
       echo "  - docker compose up --build -d"
       echo "  - API health check"
+      echo "  - Optional Webwright sidecar remains disabled"
       echo "  - Start Cloudflare tunnel"
       echo ""
       echo "Clean rebuild:"
@@ -74,6 +80,14 @@ for arg in "$@"; do
       echo "  - docker compose build --no-cache"
       echo "  - docker compose up -d"
       echo "  - API health check"
+      echo "  - Optional Webwright sidecar remains disabled"
+      echo "  - Start Cloudflare tunnel"
+      echo ""
+      echo "Webwright-enabled deploy:"
+      echo "  - docker compose --profile webwright down"
+      echo "  - docker compose --profile webwright up --build -d"
+      echo "  - API health check"
+      echo "  - Webwright sidecar health check"
       echo "  - Start Cloudflare tunnel"
       echo ""
       echo "Note: chmod +x scripts/deploy.sh before first run."
@@ -81,6 +95,9 @@ for arg in "$@"; do
       ;;
     --clean)
       CLEAN_MODE=true
+      ;;
+    --webwright)
+      WEBWRIGHT_MODE_ENABLED=true
       ;;
     *)
       error "Unknown argument: ${arg}"
@@ -91,10 +108,22 @@ for arg in "$@"; do
 done
 
 # ── Pre-flight checks ──────────────────────────────────────────────────────────
+if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+  export ENABLE_WEBWRIGHT=true
+  export COMPOSE_PROFILES=webwright
+else
+  export ENABLE_WEBWRIGHT=false
+  unset COMPOSE_PROFILES || true
+fi
+
 if [ "${CLEAN_MODE}" = true ]; then
   info "Running clean rebuild. Docker volumes will be removed."
 else
   info "Running normal deployment."
+fi
+
+if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+  info "Webwright sidecar enabled for this deploy."
 fi
 
 if ! command -v docker &>/dev/null; then
@@ -125,7 +154,11 @@ cd "${REPO_ROOT}"
 if [ "${CLEAN_MODE}" = true ]; then
   # ── Clean mode: stop + remove volumes ───────────────────────────────────────
   info "Stopping existing containers and removing volumes..."
-  docker compose down -v || true
+  if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+    docker compose --profile webwright down -v || true
+  else
+    docker compose down -v || true
+  fi
   success "Containers and volumes removed."
 
   # ── Clean mode: prune build cache ───────────────────────────────────────────
@@ -135,16 +168,28 @@ if [ "${CLEAN_MODE}" = true ]; then
 
   # ── Clean mode: no-cache build then start ───────────────────────────────────
   info "Building images without cache (this may take several minutes)..."
-  docker compose build --no-cache
+  if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+    docker compose --profile webwright build --no-cache
+  else
+    docker compose build --no-cache
+  fi
   success "Images built."
 
   info "Starting containers..."
-  docker compose up -d
+  if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+    docker compose --profile webwright up -d
+  else
+    docker compose up -d
+  fi
   success "Containers started."
 else
   # ── Normal mode: stop containers ────────────────────────────────────────────
   info "Stopping existing containers..."
-  docker compose down || true
+  if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+    docker compose --profile webwright down || true
+  else
+    docker compose down || true
+  fi
   success "Existing containers stopped."
 
   # ── Normal mode: light Docker cleanup (images only) ─────────────────────────
@@ -154,7 +199,11 @@ else
 
   # ── Normal mode: build and start containers ──────────────────────────────────
   info "Building and starting containers (this may take a few minutes on first run)..."
-  docker compose up --build -d
+  if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+    docker compose --profile webwright up --build -d
+  else
+    docker compose up --build -d
+  fi
   success "Containers started."
 fi
 
@@ -169,6 +218,14 @@ if curl --silent --fail --max-time 5 "http://localhost:${API_PORT}/api/health" &
 else
   warning "API health check failed — the API container may still be starting."
   warning "Check logs with: docker compose logs api"
+fi
+
+if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
+  info "Checking Webwright sidecar..."
+  docker compose ps webwright
+  if docker compose ps webwright | grep -qi "unhealthy"; then
+    warning "Webwright sidecar is unhealthy."
+  fi
 fi
 
 # ── Print local access URLs ───────────────────────────────────────────────────

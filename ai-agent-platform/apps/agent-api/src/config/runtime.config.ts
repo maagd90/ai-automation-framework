@@ -2,7 +2,6 @@ const defaultPlaywrightBrowsersPath = process.env.CODESPACES
   ? '/home/codespace/.cache/ms-playwright'
   : '/ms-playwright';
 
-const demoMode = process.env.DEMO_MODE === 'true';
 const rawRepairAttempts = process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS;
 const resolvePositiveInt = (raw: string | undefined, fallback: number): number => {
   const value = Number(raw ?? fallback);
@@ -40,11 +39,7 @@ export const runtimeConfig = {
   ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
   WEBWRIGHT_MODE: process.env.WEBWRIGHT_MODE || 'repair',
   WEBWRIGHT_TIMEOUT_SECONDS: resolvePositiveInt(process.env.WEBWRIGHT_TIMEOUT_SECONDS, 180),
-  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: rawRepairAttempts !== undefined
-    ? resolvePositiveInt(rawRepairAttempts, demoMode ? 1 : 2)
-    : demoMode
-      ? 1
-      : 2,
+  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: resolvePositiveInt(rawRepairAttempts, 1),
   WEBWRIGHT_MIN_CONFIDENCE: Number(process.env.WEBWRIGHT_MIN_CONFIDENCE || 0.75),
   WEBWRIGHT_DOCKER_ONLY: process.env.WEBWRIGHT_DOCKER_ONLY !== 'false',
   WEBWRIGHT_OUTPUT_DIR: process.env.WEBWRIGHT_OUTPUT_DIR || '/tmp/jobs/webwright',
