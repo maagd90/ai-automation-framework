@@ -44,11 +44,30 @@ function renderLocatorExpression(locator: WebwrightLocatorSuggestion): string {
 }
 
 function renderAssertionMethod(assertion: WebwrightAssertionSuggestion): string {
-  const body = assertion.assertion.trim().replace(/^await\s+/, '');
-  const params = assertion.expectedValue !== undefined || body.includes('expected')
+  const params = assertion.expectedValue !== undefined
     ? '(expected: string): Promise<void>'
     : '(): Promise<void>';
   return `  async ${assertion.methodName}${params} {\n    ${assertion.assertion.trim()}\n  }`;
+}
+
+function extractExpectedArgument(assertion: WebwrightAssertionSuggestion): string | undefined {
+  if (assertion.expectedValue !== undefined) {
+    return toTypeScriptLiteral(assertion.expectedValue);
+  }
+
+  const match = assertion.assertion.match(/\bto(?:HaveText|ContainText|HaveValue|HaveAttribute)\(\s*([^)]*?)\s*\)/);
+  const value = match?.[1]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  const isQuoted = /^['"`].*['"`]$/.test(value);
+  const isLiteral = /^(?:true|false|null|undefined|-?\d+(?:\.\d+)?)$/.test(value);
+  const isReference = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(value);
+  return isQuoted || isLiteral || isReference ? value : undefined;
+}
+
+function toTypeScriptLiteral(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
 export class WebwrightPatchService {
@@ -81,8 +100,11 @@ export class WebwrightPatchService {
 
       const specFile = this.resolveSpecFile(finalDir, assertion.pageObject);
       if (specFile) {
-        this.patchSpecAssertion(specFile, assertion);
-        patchedFiles.add(specFile);
+        if (this.patchSpecAssertion(specFile, assertion)) {
+          patchedFiles.add(specFile);
+        } else {
+          warnings.push(`Spec assertion patch skipped for ${assertion.methodName}`);
+        }
       } else {
         warnings.push(`Spec file not found for ${assertion.pageObject}`);
       }
@@ -139,23 +161,27 @@ export class WebwrightPatchService {
     fs.writeFileSync(filePath, source, 'utf8');
   }
 
-  private patchSpecAssertion(filePath: string, assertion: WebwrightAssertionSuggestion): void {
+  private patchSpecAssertion(filePath: string, assertion: WebwrightAssertionSuggestion): boolean {
     let source = fs.readFileSync(filePath, 'utf8');
     const pageVar = `${toCamel(assertion.pageObject).replace(/Page$/, '')}Page`;
-    const expectedArg = assertion.expectedValue !== undefined ? JSON.stringify(assertion.expectedValue) : '';
+    const expectedArg = extractExpectedArgument(assertion);
+    const needsExpectedArg = /\bexpected\b/.test(assertion.assertion) || /to(?:HaveText|ContainText|HaveValue|HaveAttribute)\(/.test(assertion.assertion);
     const weakPatterns = [
       /await expect\(page\)\.not\.toHaveURL\([^)]*\);?/g,
       /await expect\(page\)\.toHaveURL\([^)]*\);?/g,
       /await expect\(page\.locator\([^)]*\)\)\.toBeVisible\(\);?/g,
       /await expect\(page\.locator\([^)]*\)\)\.toHaveText\([^)]*\);?/g,
     ];
+    if (needsExpectedArg && expectedArg === undefined) {
+      return false;
+    }
     let patched = source;
     for (const pattern of weakPatterns) {
-      patched = patched.replace(pattern, `await ${pageVar}.${assertion.methodName}(${expectedArg});`);
+      patched = patched.replace(pattern, expectedArg ? `await ${pageVar}.${assertion.methodName}(${expectedArg});` : `await ${pageVar}.${assertion.methodName}();`);
     }
-    if (patched !== source) {
-      fs.writeFileSync(filePath, patched, 'utf8');
-    }
+    if (patched === source) return false;
+    fs.writeFileSync(filePath, patched, 'utf8');
+    return true;
   }
 
   private patchLocatorJson(filePath: string, locator: WebwrightLocatorSuggestion): void {

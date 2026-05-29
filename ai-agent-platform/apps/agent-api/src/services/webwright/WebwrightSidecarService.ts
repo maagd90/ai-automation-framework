@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import type { TestCase, WebwrightMode, WebwrightStatus } from '@ai-agent/shared-types';
@@ -29,12 +28,6 @@ export interface WebwrightSidecarResult {
   skipped: boolean;
 }
 
-// Resolve the sidecar runner path using this file's location.
-// This file is at: ai-agent-platform/apps/agent-api/src/services/webwright/
-// Repo root is 6 levels up.
-const _thisDir = __dirname;
-const SIDECAR_RUNNER_PATH = path.resolve(_thisDir, '../../../../../../webwright-sidecar/runner.py');
-
 function isInsideDocker(): boolean {
   return (
     process.env.IN_DOCKER === 'true' ||
@@ -47,15 +40,13 @@ function isInsideDocker(): boolean {
  * Orchestrates the optional Webwright browser-agent sidecar.
  *
  * When disabled (ENABLE_WEBWRIGHT=false or mode=disabled), all methods return
- * immediately with a skipped result — no external process is spawned and no
- * filesystem I/O is performed.
+ * immediately with a skipped result — no remote sidecar request is made.
  *
  * Security contract:
  * - Only runs if ENABLE_WEBWRIGHT=true.
  * - In WEBWRIGHT_DOCKER_ONLY=true mode (default), refuses to run outside Docker.
- * - The sidecar process writes only inside its job-scoped output directory.
- * - Secrets are never passed as CLI arguments; they are redacted from logs.
- * - The process is killed hard after WEBWRIGHT_TIMEOUT_SECONDS.
+ * - The sidecar service writes only inside its job-scoped output directory.
+ * - Secrets are never passed around in plain text.
  */
 export class WebwrightSidecarService {
   private readonly taskBuilder = new WebwrightTaskBuilder();
@@ -132,10 +123,10 @@ export class WebwrightSidecarService {
 
     let rawOutput: string;
     try {
-      rawOutput = await this.spawnSidecar(inputFile, jobOutputDir);
+      rawOutput = await this.postToSidecar(inputPayload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error('[Webwright] Sidecar process failed', { jobId: opts.jobId, error: message });
+      logger.error('[Webwright] Sidecar request failed', { jobId: opts.jobId, error: message });
       return {
         status: 'failed',
         summary: `Webwright sidecar failed: ${message}`,
@@ -195,57 +186,28 @@ export class WebwrightSidecarService {
     };
   }
 
-  private spawnSidecar(inputFile: string, outputDir: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const timeoutSeconds = Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS ?? webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS);
-      const timeoutMs = timeoutSeconds * 1000;
-      const args = ['--input', inputFile, '--output-dir', outputDir];
+  private async postToSidecar(payload: unknown): Promise<string> {
+    const controller = new AbortController();
+    const timeoutSeconds = Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS ?? webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS);
+    const timer = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
 
-      const child = spawn('python3', [SIDECAR_RUNNER_PATH, ...args], {
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
+    try {
+      const response = await fetch(`${webwrightConfig.WEBWRIGHT_SERVICE_URL}/repair`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       });
-
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on('data', (chunk: Buffer) => {
-        // Redact values that look like secrets in both key=value and JSON "key":"value" formats
-        const line = chunk.toString()
-          .replace(/(?:key|token|password|secret|auth)=\S+/gi, '[REDACTED]')
-          .replace(/"(key|token|password|secret|auth|apiKey)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
-          .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
-        stderr += line;
-      });
-
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error(`Webwright sidecar timed out after ${timeoutSeconds}s`));
-      }, timeoutMs);
-
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (code !== 0) {
-          const detail = stderr.slice(-1000);
-          reject(new Error(`Sidecar exited with code ${code ?? 'null'}. stderr: ${detail}`));
-          return;
-        }
-        // Prefer the structured output file written by the sidecar if present
-        const outputFile = path.join(outputDir, 'result.json');
-        if (fs.existsSync(outputFile)) {
-          resolve(fs.readFileSync(outputFile, 'utf8'));
-        } else {
-          resolve(stdout);
-        }
-      });
-
-      child.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(body || `Webwright sidecar returned HTTP ${response.status}`);
+      }
+      return body;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Webwright sidecar request failed: ${message}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

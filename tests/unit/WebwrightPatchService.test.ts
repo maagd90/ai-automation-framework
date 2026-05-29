@@ -50,7 +50,7 @@ describe('WebwrightPatchService', () => {
     const pageObject = fs.readFileSync(path.join(finalDir, 'src', 'pages', 'ProductsPage.ts'), 'utf8');
 
     expect(result.patchedFiles.length).toBeGreaterThan(0);
-    expect(spec).toContain('await productsPage.expectCartBadgeCount("1");');
+    expect(spec).toContain("await productsPage.expectCartBadgeCount('1');");
     expect(pageObject).toContain('async expectCartBadgeCount(expected: string): Promise<void>');
   });
 });

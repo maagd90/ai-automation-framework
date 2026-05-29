@@ -60,6 +60,11 @@ function parseStrategyLocator(page: any, suggestion: WebwrightLocatorSuggestion)
   return null;
 }
 
+function wantsPrerequisiteFlow(suggestion: WebwrightLocatorSuggestion | WebwrightAssertionSuggestion): boolean {
+  const haystack = `${suggestion.pageObject} ${'selector' in suggestion ? suggestion.selector : suggestion.assertion} ${suggestion.reason}`.toLowerCase();
+  return /login|sign in|sign-in|auth|account|profile|product|catalog|shop|cart|checkout|dashboard|order|basket|bag/.test(haystack);
+}
+
 async function firstPresent(candidates: any[]): Promise<any | null> {
   for (const candidate of candidates) {
     try {
@@ -71,32 +76,17 @@ async function firstPresent(candidates: any[]): Promise<any | null> {
   return null;
 }
 
-function wantsPostLoginState(suggestion: WebwrightLocatorSuggestion): boolean {
-  const haystack = `${suggestion.fieldName} ${suggestion.target} ${suggestion.selector} ${suggestion.reason}`.toLowerCase();
-  return /(product|inventory|catalog|shop|cart|checkout|dashboard|order|bag|basket)/.test(haystack);
-}
-
-async function maybeWaitForNavigation(page: any): Promise<void> {
-  if (typeof page.waitForLoadState === 'function') {
-    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-  }
-}
-
-async function tryLoginFlow(page: any): Promise<boolean> {
+async function attemptLoginFlow(page: any): Promise<boolean> {
   const password = await firstPresent([
     page.locator('input[type="password"]'),
-    page.getByLabel?.('Password'),
-    page.getByPlaceholder?.('Password'),
   ]);
   if (!password) return false;
 
   const username = await firstPresent([
-    page.getByLabel?.('Username'),
-    page.getByLabel?.('Email'),
-    page.getByPlaceholder?.('Username'),
-    page.getByPlaceholder?.('Email'),
     page.locator('input[type="email"]'),
     page.locator('input[type="text"]'),
+    // Some browsers/web apps omit the type attribute, which defaults to text.
+    page.locator('input:not([type])'),
   ]);
 
   if (username?.fill) {
@@ -107,64 +97,58 @@ async function tryLoginFlow(page: any): Promise<boolean> {
   }
 
   const submit = await firstPresent([
-    page.getByRole?.('button', { name: 'Login' }),
-    page.getByRole?.('button', { name: 'Sign in' }),
-    page.getByRole?.('button', { name: 'Sign In' }),
-    page.getByRole?.('button', { name: 'Submit' }),
     page.locator('button[type="submit"]'),
     page.locator('input[type="submit"]'),
+    page.locator('form button'),
   ]);
-  if (submit?.click) {
-    await submit.click().catch(() => undefined);
-    await maybeWaitForNavigation(page);
+  if (!submit) return false;
+
+  await submit.click().catch(() => undefined);
+  await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  return true;
+}
+
+async function attemptPageAdvance(page: any): Promise<boolean> {
+  const candidates = await firstPresent([
+    page.getByRole?.('link'),
+    page.getByRole?.('button'),
+  ]);
+  if (!candidates) return false;
+
+  try {
+    await candidates.first().click().catch(() => undefined);
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
     return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
-async function tryOpenCatalog(page: any): Promise<boolean> {
-  const catalog = await firstPresent([
-    page.getByRole?.('link', { name: 'Products' }),
-    page.getByRole?.('button', { name: 'Products' }),
-    page.getByRole?.('link', { name: 'Catalog' }),
-    page.getByRole?.('button', { name: 'Catalog' }),
-    page.getByRole?.('link', { name: 'Shop' }),
-    page.getByRole?.('button', { name: 'Shop' }),
-    page.locator('a[href*="product"]'),
-    page.locator('a[href*="catalog"]'),
-  ]);
-  if (!catalog?.click) return false;
-  await catalog.click().catch(() => undefined);
-  await maybeWaitForNavigation(page);
-  return true;
+async function resolvePrerequisites(page: any, suggestion: WebwrightLocatorSuggestion | WebwrightAssertionSuggestion): Promise<void> {
+  if (!wantsPrerequisiteFlow(suggestion)) {
+    return;
+  }
+
+  await attemptLoginFlow(page);
+  const advanced = await attemptPageAdvance(page);
+  if (advanced) {
+    await attemptPageAdvance(page);
+  }
 }
 
-async function tryOpenCart(page: any): Promise<boolean> {
-  const cart = await firstPresent([
-    page.getByRole?.('link', { name: 'Cart' }),
-    page.getByRole?.('button', { name: 'Cart' }),
-    page.getByRole?.('link', { name: 'Basket' }),
-    page.getByRole?.('button', { name: 'Basket' }),
-    page.getByRole?.('link', { name: 'Bag' }),
-    page.getByRole?.('button', { name: 'Bag' }),
-  ]);
-  if (!cart?.click) return false;
-  await cart.click().catch(() => undefined);
-  await maybeWaitForNavigation(page);
-  return true;
+async function validateLocator(page: any, locator: WebwrightLocatorSuggestion): Promise<boolean> {
+  const loc = parseStrategyLocator(page, locator);
+  if (!loc) return false;
+  return (await loc.count()) > 0;
 }
 
-async function tryAddProduct(page: any): Promise<boolean> {
-  const addToCart = await firstPresent([
-    page.getByRole?.('button', { name: 'Add to cart' }),
-    page.getByRole?.('button', { name: 'Add to Cart' }),
-    page.getByRole?.('button', { name: 'Add item' }),
-    page.locator('button[name*="cart" i]'),
-    page.locator('button:has-text("Add")'),
-  ]);
-  if (!addToCart?.click) return false;
-  await addToCart.click().catch(() => undefined);
-  return true;
+async function validateAssertion(page: any, assertion: WebwrightAssertionSuggestion): Promise<boolean> {
+  const selector = assertion.assertion.match(/this\.(page|[A-Za-z0-9_]+)\.locator\((['"`].*['"`])\)/)?.[2];
+  const parsedSelector = selector ? parseQuotedValue(selector) : undefined;
+  if (!parsedSelector) {
+    return assertion.assertion.includes('toBeVisible') || assertion.assertion.includes('toHaveText');
+  }
+  return (await page.locator(parsedSelector).count()) > 0;
 }
 
 export class WebwrightSuggestionValidator {
@@ -192,72 +176,28 @@ export class WebwrightSuggestionValidator {
           continue;
         }
 
-        const loc = parseStrategyLocator(page, locator);
-        if (!loc) {
-          rejectedLocators.push(locator);
-          warnings.push(`Unable to parse selector for ${locator.fieldName}`);
-          continue;
-        }
-
-        const count = await loc.count();
-        if (count > 0) {
+        if (await validateLocator(page, locator)) {
           approvedLocators.push(locator);
           continue;
         }
 
-        const prerequisiteFlows: Array<() => Promise<boolean>> = [() => tryLoginFlow(page)];
-        if (wantsPostLoginState(locator)) {
-          prerequisiteFlows.push(() => tryOpenCatalog(page), () => tryAddProduct(page), () => tryOpenCart(page));
-        }
-
-        let resolved = false;
-        for (const flow of prerequisiteFlows) {
-          if (!(await flow())) continue;
-          if (await loc.count() > 0) {
-            resolved = true;
-            break;
-          }
-        }
-
-        if (resolved) {
+        await resolvePrerequisites(page, locator);
+        if (await validateLocator(page, locator)) {
           approvedLocators.push(locator);
         } else {
           rejectedLocators.push(locator);
-          warnings.push(`Locator ${locator.fieldName} did not resolve even after prerequisite flow attempts`);
+          warnings.push(`Locator ${locator.fieldName} did not resolve after prerequisite flow attempts`);
         }
       }
 
       for (const assertion of result.suggestedAssertions) {
-        const selector = assertion.assertion.match(/this\.(page|[A-Za-z0-9_]+)\.locator\((['"`].*['"`])\)/)?.[2];
-        const parsedSelector = selector ? parseQuotedValue(selector) : undefined;
-        if (parsedSelector && await page.locator(parsedSelector).count() > 0) {
+        if (await validateAssertion(page, assertion)) {
           approvedAssertions.push(assertion);
           continue;
         }
 
-        const prerequisiteFlows: Array<() => Promise<boolean>> = [() => tryLoginFlow(page)];
-        if (wantsPostLoginState({
-          pageObject: assertion.pageObject,
-          fieldName: assertion.methodName,
-          target: assertion.assertion,
-          selector: assertion.assertion,
-          reason: assertion.reason,
-          confidenceScore: 1,
-          strategy: 'getByRole',
-        })) {
-          prerequisiteFlows.push(() => tryOpenCatalog(page), () => tryAddProduct(page), () => tryOpenCart(page));
-        }
-
-        let resolved = false;
-        for (const flow of prerequisiteFlows) {
-          if (!(await flow())) continue;
-          if (parsedSelector && await page.locator(parsedSelector).count() > 0) {
-            resolved = true;
-            break;
-          }
-        }
-
-        if (resolved || assertion.assertion.includes('toBeVisible') || assertion.assertion.includes('toHaveText')) {
+        await resolvePrerequisites(page, assertion);
+        if (await validateAssertion(page, assertion)) {
           approvedAssertions.push(assertion);
         } else {
           rejectedAssertions.push(assertion);

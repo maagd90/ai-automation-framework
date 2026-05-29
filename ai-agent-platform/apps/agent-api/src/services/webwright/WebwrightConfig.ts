@@ -1,11 +1,11 @@
 import type { WebwrightMode } from '@ai-agent/shared-types';
 
 /** Allowed Webwright operating modes. */
-const VALID_MODES: Set<string> = new Set(['disabled', 'deep-review', 'repair', 'exploration']);
+const VALID_MODES: Set<WebwrightMode> = new Set(['disabled', 'deep-review', 'repair', 'exploration']);
 
 function resolveMode(raw: string | undefined): WebwrightMode {
   const value = raw ?? 'disabled';
-  return VALID_MODES.has(value) ? (value as WebwrightMode) : 'disabled';
+  return VALID_MODES.has(value as WebwrightMode) ? (value as WebwrightMode) : 'disabled';
 }
 
 function resolvePositiveInt(raw: string | undefined, fallback: number): number {
@@ -23,7 +23,7 @@ export const webwrightConfig = {
   /** Master switch — set ENABLE_WEBWRIGHT=true to allow sidecar invocations. */
   ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
 
-  /** Operating mode: disabled | repair | exploration */
+  /** Operating mode: disabled | deep-review | repair | exploration */
   WEBWRIGHT_MODE: resolveMode(process.env.WEBWRIGHT_MODE ?? 'repair'),
 
   /** Maximum seconds to wait for a sidecar process to complete. */

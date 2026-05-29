@@ -8,6 +8,7 @@ function makeLocator(selector: string) {
       if (selector.includes('input[type="password"]')) return state.phase === 'login' ? 1 : 0;
       if (selector.includes('input[type="text"]') || selector.includes('input[type="email"]')) return state.phase === 'login' ? 1 : 0;
       if (selector.includes('Login') || selector.includes('Sign in') || selector.includes('Submit')) return state.phase === 'login' ? 1 : 0;
+      if (selector.includes('button')) return state.phase === 'login' ? 1 : 0;
       if (selector.includes('Cart')) return state.phase === 'products' || state.phase === 'cart' ? 1 : 0;
       return 0;
     },
@@ -15,7 +16,7 @@ function makeLocator(selector: string) {
       return undefined;
     },
     async click() {
-      if (selector.includes('Login') || selector.includes('Sign in') || selector.includes('Submit')) {
+      if (state.phase === 'login' && selector.includes('button')) {
         state.phase = 'products';
       }
       if (selector.includes('Cart')) {
