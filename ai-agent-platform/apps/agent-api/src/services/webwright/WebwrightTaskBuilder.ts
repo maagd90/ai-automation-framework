@@ -79,7 +79,10 @@ export class WebwrightTaskBuilder {
     const focusList = focusAreas.length > 0 ? focusAreas.join(', ') : 'all interactive elements';
     const stepSummaries = testCases
       .flatMap((tc) => tc.steps ?? [])
-      .map((s) => `${s.action}${s.target ? ' ' + s.target : ''}${s.value ? ' → ' + s.value : ''}`)
+      .map((s) => {
+        const valueDisplay = s.value ? ` → ${this.redactIfSensitive(s.target, s.value)}` : '';
+        return `${s.action}${s.target ? ' ' + s.target : ''}${valueDisplay}`;
+      })
       .slice(0, 20)
       .join('; ');
 
@@ -95,5 +98,14 @@ export class WebwrightTaskBuilder {
       `recommendedAssertions (each with description, selector, assertionType), ` +
       `and any warnings about unstable or missing elements.`
     );
+  }
+
+  /** Returns '[REDACTED]' for values associated with credential fields (username/password). */
+  private redactIfSensitive(target: string | undefined, value: string): string {
+    const t = (target ?? '').toLowerCase();
+    if (t.includes('password') || t.includes('username') || t.includes('email') || t.includes('credential')) {
+      return '[REDACTED]';
+    }
+    return value;
   }
 }

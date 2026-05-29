@@ -52,7 +52,7 @@ def _empty_result(status: str, summary: str, warnings: list[str]) -> dict:
 # Browser exploration logic
 # ---------------------------------------------------------------------------
 
-def explore(target_url: str, focus_areas: list[str], output_dir: Path) -> dict:
+def explore(target_url: str, focus_areas: list[str], output_dir: Path, timeout_seconds: int = 180) -> dict:
     """
     Launch a headless Chromium browser, navigate to target_url, and collect
     stable locator candidates for each focus area.
@@ -79,7 +79,7 @@ def explore(target_url: str, focus_areas: list[str], output_dir: Path) -> dict:
         page = context.new_page()
 
         try:
-            page.goto(target_url, wait_until="domcontentloaded", timeout=30_000)
+            page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_seconds * 1_000)
         except Exception as e:  # noqa: BLE001
             browser.close()
             return _empty_result("failed", f"Navigation failed: {e}", [str(e)])
@@ -238,8 +238,20 @@ def main() -> None:
     input_path = Path(args.input).resolve()
     output_dir = Path(args.output_dir).resolve()
 
-    # Security: refuse paths outside /tmp to prevent directory traversal
-    if not str(input_path).startswith("/tmp") and not str(input_path).startswith(os.sep + "tmp"):
+    # Security: refuse paths outside /tmp to prevent directory traversal.
+    # Use is_relative_to for a symlink-safe, cross-platform comparison.
+    tmp_root = Path("/tmp").resolve()
+    try:
+        safe_input = input_path.is_relative_to(tmp_root)
+    except AttributeError:
+        # Fallback for Python < 3.9
+        try:
+            input_path.relative_to(tmp_root)
+            safe_input = True
+        except ValueError:
+            safe_input = False
+
+    if not safe_input:
         print(json.dumps(_empty_result("failed", "Unsafe input path rejected", [])))
         sys.exit(1)
 
@@ -255,6 +267,7 @@ def main() -> None:
 
     target_url: str = payload.get("targetUrl", "")
     focus_areas: list[str] = payload.get("task", {}).get("focusAreas", [])
+    timeout_seconds: int = int(payload.get("timeoutSeconds", 180))
 
     if not target_url:
         result = _empty_result("failed", "No targetUrl provided in input payload", [])
@@ -262,7 +275,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        result = explore(target_url, focus_areas, output_dir)
+        result = explore(target_url, focus_areas, output_dir, timeout_seconds)
     except Exception:  # noqa: BLE001
         tb = traceback.format_exc()
         result = _empty_result("failed", "Unexpected error during exploration", [tb])

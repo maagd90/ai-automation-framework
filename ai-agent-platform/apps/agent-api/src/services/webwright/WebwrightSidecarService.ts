@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import type { TestCase, WebwrightMode, WebwrightStatus } from '@ai-agent/shared-types';
 import { webwrightConfig } from './WebwrightConfig';
 import { WebwrightTaskBuilder } from './WebwrightTaskBuilder';
@@ -29,10 +30,11 @@ export interface WebwrightSidecarResult {
   skipped: boolean;
 }
 
-const SIDECAR_RUNNER_PATH = path.resolve(
-  new URL(import.meta.url).pathname,
-  '../../../../../../../../../../webwright-sidecar/runner.py',
-);
+// Resolve the sidecar runner path using this file's location.
+// This file is at: ai-agent-platform/apps/agent-api/src/services/webwright/
+// Repo root is 6 levels up.
+const _thisDir = path.dirname(fileURLToPath(import.meta.url));
+const SIDECAR_RUNNER_PATH = path.resolve(_thisDir, '../../../../../../webwright-sidecar/runner.py');
 
 function isInsideDocker(): boolean {
   return (
@@ -212,8 +214,11 @@ export class WebwrightSidecarService {
         stdout += chunk.toString();
       });
       child.stderr.on('data', (chunk: Buffer) => {
-        // Redact anything that looks like a secret before logging
-        const line = chunk.toString().replace(/(?:key|token|password|secret)=\S+/gi, '[REDACTED]');
+        // Redact values that look like secrets in both key=value and JSON "key":"value" formats
+        const line = chunk.toString()
+          .replace(/(?:key|token|password|secret|auth)=\S+/gi, '[REDACTED]')
+          .replace(/"(key|token|password|secret|auth|apiKey)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
+          .replace(/Bearer\s+\S+/gi, '******');
         stderr += line;
       });
 

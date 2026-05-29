@@ -17,7 +17,11 @@ export interface ScriptReviewResult {
 const CONFIDENCE_THRESHOLD = 0.6;
 const WEAK_ASSERTION_TYPES = new Set(['toHaveURL']);
 
-/** CSS selectors that are considered too generic to be reliable locators. */
+/**
+ * CSS selectors that are considered too generic to be reliable locators.
+ * Bare tag selectors (e.g. 'button', 'input', 'a') match many elements at once
+ * and are intentionally treated as generic — prefer role/label/data-test selectors.
+ */
 const GENERIC_SELECTOR_PATTERNS = [/^\.[\w-]+$/, /^#\S+$/, /^[a-z]+$/];
 
 function isGenericSelector(selector: string): boolean {
