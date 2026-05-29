@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
 import { webwrightConfig } from './WebwrightConfig';
 import { WebwrightTaskBuilder } from './WebwrightTaskBuilder';
 import { WebwrightResultParser, type ParsedWebwrightResult } from './WebwrightResultParser';
@@ -23,9 +22,6 @@ export interface WebwrightRepairResult extends ParsedWebwrightResult {
   recommendationsUsed: number;
   generatedFiles: string[];
 }
-
-const THIS_DIR = __dirname;
-const SIDECAR_RUNNER = path.resolve(THIS_DIR, '../../../../../../webwright-sidecar/runner.py');
 
 function isInsideDocker(): boolean {
   return process.env.IN_DOCKER === 'true'
@@ -112,6 +108,8 @@ export class WebwrightRepairService {
       .map((file) => path.basename(file.path, '.ts'));
 
     const input = {
+      jobId: request.jobId,
+      outputDir: jobOutputDir,
       task: this.taskBuilder.buildRepairTask({
         targetUrl: request.targetUrl,
         failedSpecPath: request.failedSpecPath,
@@ -137,8 +135,18 @@ export class WebwrightRepairService {
     const inputFile = path.join(jobOutputDir, 'input.json');
     fs.writeFileSync(inputFile, JSON.stringify(input, null, 2), 'utf8');
 
-    const raw = await this.spawnSidecar(inputFile, jobOutputDir);
-    const parsed = this.parser.parse(raw);
+    let parsed: ParsedWebwrightResult;
+    try {
+      const raw = await this.postToSidecar(input);
+      parsed = this.parser.parse(raw);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ...this.skippedResult(`Webwright repair failed: ${message}`, request, classifier.category),
+        enabled: true,
+        status: 'failed',
+      };
+    }
 
     return {
       ...parsed,
@@ -178,47 +186,29 @@ export class WebwrightRepairService {
     };
   }
 
-  private spawnSidecar(inputFile: string, outputDir: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const timeoutMs = webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS * 1000;
-      const child = spawn('python3', [SIDECAR_RUNNER, '--input', inputFile, '--output-dir', outputDir], {
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
+  private async postToSidecar(payload: unknown): Promise<string> {
+    const controller = new AbortController();
+    const timeoutMs = webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS * 1000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${webwrightConfig.WEBWRIGHT_SERVICE_URL}/repair`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
-      let stdout = '';
-      let stderr = '';
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error(`Webwright sidecar timed out after ${webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS}s`));
-      }, timeoutMs);
-
-      child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-
-      child.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (code !== 0) {
-          reject(new Error(stderr.slice(-1000) || `Sidecar exited with code ${code ?? 'null'}`));
-          return;
-        }
-        const outputFile = path.join(outputDir, 'result.json');
-        if (fs.existsSync(outputFile)) {
-          resolve(fs.readFileSync(outputFile, 'utf8'));
-          return;
-        }
-        resolve(stdout);
-      });
-
-      child.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(body || `Webwright sidecar returned HTTP ${response.status}`);
+      }
+      return body;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Webwright sidecar request failed: ${message}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

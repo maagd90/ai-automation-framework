@@ -60,12 +60,121 @@ function parseStrategyLocator(page: any, suggestion: WebwrightLocatorSuggestion)
   return null;
 }
 
+async function firstPresent(candidates: any[]): Promise<any | null> {
+  for (const candidate of candidates) {
+    try {
+      if (await candidate.count() > 0) return candidate;
+    } catch {
+      // ignore invalid candidate shapes
+    }
+  }
+  return null;
+}
+
+function wantsPostLoginState(suggestion: WebwrightLocatorSuggestion): boolean {
+  const haystack = `${suggestion.fieldName} ${suggestion.target} ${suggestion.selector} ${suggestion.reason}`.toLowerCase();
+  return /(product|inventory|catalog|shop|cart|checkout|dashboard|order|bag|basket)/.test(haystack);
+}
+
+async function maybeWaitForNavigation(page: any): Promise<void> {
+  if (typeof page.waitForLoadState === 'function') {
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  }
+}
+
+async function tryLoginFlow(page: any): Promise<boolean> {
+  const password = await firstPresent([
+    page.locator('input[type="password"]'),
+    page.getByLabel?.('Password'),
+    page.getByPlaceholder?.('Password'),
+  ]);
+  if (!password) return false;
+
+  const username = await firstPresent([
+    page.getByLabel?.('Username'),
+    page.getByLabel?.('Email'),
+    page.getByPlaceholder?.('Username'),
+    page.getByPlaceholder?.('Email'),
+    page.locator('input[type="email"]'),
+    page.locator('input[type="text"]'),
+  ]);
+
+  if (username?.fill) {
+    await username.fill('webwright-user').catch(() => undefined);
+  }
+  if (password?.fill) {
+    await password.fill('webwright-pass').catch(() => undefined);
+  }
+
+  const submit = await firstPresent([
+    page.getByRole?.('button', { name: 'Login' }),
+    page.getByRole?.('button', { name: 'Sign in' }),
+    page.getByRole?.('button', { name: 'Sign In' }),
+    page.getByRole?.('button', { name: 'Submit' }),
+    page.locator('button[type="submit"]'),
+    page.locator('input[type="submit"]'),
+  ]);
+  if (submit?.click) {
+    await submit.click().catch(() => undefined);
+    await maybeWaitForNavigation(page);
+    return true;
+  }
+  return false;
+}
+
+async function tryOpenCatalog(page: any): Promise<boolean> {
+  const catalog = await firstPresent([
+    page.getByRole?.('link', { name: 'Products' }),
+    page.getByRole?.('button', { name: 'Products' }),
+    page.getByRole?.('link', { name: 'Catalog' }),
+    page.getByRole?.('button', { name: 'Catalog' }),
+    page.getByRole?.('link', { name: 'Shop' }),
+    page.getByRole?.('button', { name: 'Shop' }),
+    page.locator('a[href*="product"]'),
+    page.locator('a[href*="catalog"]'),
+  ]);
+  if (!catalog?.click) return false;
+  await catalog.click().catch(() => undefined);
+  await maybeWaitForNavigation(page);
+  return true;
+}
+
+async function tryOpenCart(page: any): Promise<boolean> {
+  const cart = await firstPresent([
+    page.getByRole?.('link', { name: 'Cart' }),
+    page.getByRole?.('button', { name: 'Cart' }),
+    page.getByRole?.('link', { name: 'Basket' }),
+    page.getByRole?.('button', { name: 'Basket' }),
+    page.getByRole?.('link', { name: 'Bag' }),
+    page.getByRole?.('button', { name: 'Bag' }),
+  ]);
+  if (!cart?.click) return false;
+  await cart.click().catch(() => undefined);
+  await maybeWaitForNavigation(page);
+  return true;
+}
+
+async function tryAddProduct(page: any): Promise<boolean> {
+  const addToCart = await firstPresent([
+    page.getByRole?.('button', { name: 'Add to cart' }),
+    page.getByRole?.('button', { name: 'Add to Cart' }),
+    page.getByRole?.('button', { name: 'Add item' }),
+    page.locator('button[name*="cart" i]'),
+    page.locator('button:has-text("Add")'),
+  ]);
+  if (!addToCart?.click) return false;
+  await addToCart.click().catch(() => undefined);
+  return true;
+}
+
 export class WebwrightSuggestionValidator {
+  constructor(private readonly launchBrowser: () => Promise<any> = () => chromium.launch({ headless: true })) {}
+
   async validate(
     result: ParsedWebwrightResult,
     targetUrl: string,
   ): Promise<WebwrightValidationResult> {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await this.launchBrowser();
     const page = await browser.newPage();
     const warnings = [...result.warnings];
     const approvedLocators: WebwrightLocatorSuggestion[] = [];
@@ -93,9 +202,28 @@ export class WebwrightSuggestionValidator {
         const count = await loc.count();
         if (count > 0) {
           approvedLocators.push(locator);
+          continue;
+        }
+
+        const prerequisiteFlows: Array<() => Promise<boolean>> = [() => tryLoginFlow(page)];
+        if (wantsPostLoginState(locator)) {
+          prerequisiteFlows.push(() => tryOpenCatalog(page), () => tryAddProduct(page), () => tryOpenCart(page));
+        }
+
+        let resolved = false;
+        for (const flow of prerequisiteFlows) {
+          if (!(await flow())) continue;
+          if (await loc.count() > 0) {
+            resolved = true;
+            break;
+          }
+        }
+
+        if (resolved) {
+          approvedLocators.push(locator);
         } else {
           rejectedLocators.push(locator);
-          warnings.push(`Locator ${locator.fieldName} did not resolve on the live page`);
+          warnings.push(`Locator ${locator.fieldName} did not resolve even after prerequisite flow attempts`);
         }
       }
 
@@ -106,7 +234,30 @@ export class WebwrightSuggestionValidator {
           approvedAssertions.push(assertion);
           continue;
         }
-        if (assertion.assertion.includes('toBeVisible') || assertion.assertion.includes('toHaveText')) {
+
+        const prerequisiteFlows: Array<() => Promise<boolean>> = [() => tryLoginFlow(page)];
+        if (wantsPostLoginState({
+          pageObject: assertion.pageObject,
+          fieldName: assertion.methodName,
+          target: assertion.assertion,
+          selector: assertion.assertion,
+          reason: assertion.reason,
+          confidenceScore: 1,
+          strategy: 'getByRole',
+        })) {
+          prerequisiteFlows.push(() => tryOpenCatalog(page), () => tryAddProduct(page), () => tryOpenCart(page));
+        }
+
+        let resolved = false;
+        for (const flow of prerequisiteFlows) {
+          if (!(await flow())) continue;
+          if (parsedSelector && await page.locator(parsedSelector).count() > 0) {
+            resolved = true;
+            break;
+          }
+        }
+
+        if (resolved || assertion.assertion.includes('toBeVisible') || assertion.assertion.includes('toHaveText')) {
           approvedAssertions.push(assertion);
         } else {
           rejectedAssertions.push(assertion);

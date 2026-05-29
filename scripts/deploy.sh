@@ -111,6 +111,7 @@ done
 if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
   export ENABLE_WEBWRIGHT=true
   export COMPOSE_PROFILES=webwright
+  export WEBWRIGHT_SERVICE_URL="${WEBWRIGHT_SERVICE_URL:-http://webwright:3002}"
 else
   export ENABLE_WEBWRIGHT=false
   unset COMPOSE_PROFILES || true

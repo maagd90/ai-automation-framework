@@ -96,9 +96,11 @@ export class BatchReportService {
     const executionFailed = executionEnabled && executionExitCode !== 0;
 
     let status: BatchReport['status'];
-    if (generationFailed === 0 && !executionFailed) {
+    if (executionFailed) {
+      status = 'failed';
+    } else if (generationFailed === 0) {
       status = 'passed';
-    } else if (generationPassed === 0 || (generationFailed === totalCases && !executionFailed)) {
+    } else if (generationPassed === 0) {
       status = 'failed';
     } else {
       status = 'partial';
@@ -126,6 +128,9 @@ export class BatchReportService {
       summary = executionSummary
         ? `${generationSummary}. ${executionSummary}.`
         : `${generationSummary}.`;
+      if (executionFailed) {
+        summary = `${summary} Execution failed.`;
+      }
     } else {
       summary = executionSummary
         ? `${generationSummary}. ${executionSummary}.`

@@ -1,7 +1,7 @@
 import type { WebwrightMode } from '@ai-agent/shared-types';
 
 /** Allowed Webwright operating modes. */
-const VALID_MODES: Set<string> = new Set(['disabled', 'repair', 'exploration']);
+const VALID_MODES: Set<string> = new Set(['disabled', 'deep-review', 'repair', 'exploration']);
 
 function resolveMode(raw: string | undefined): WebwrightMode {
   const value = raw ?? 'disabled';
@@ -37,6 +37,9 @@ export const webwrightConfig = {
 
   /** Directory where sidecar writes its job-scoped outputs. */
   WEBWRIGHT_OUTPUT_DIR: process.env.WEBWRIGHT_OUTPUT_DIR ?? '/tmp/jobs/webwright',
+
+  /** HTTP endpoint for the optional sidecar container. */
+  WEBWRIGHT_SERVICE_URL: process.env.WEBWRIGHT_SERVICE_URL ?? 'http://webwright:3002',
 
   /**
    * Comma-separated list of domains the sidecar is allowed to navigate to.

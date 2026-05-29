@@ -45,7 +45,9 @@ function renderLocatorExpression(locator: WebwrightLocatorSuggestion): string {
 
 function renderAssertionMethod(assertion: WebwrightAssertionSuggestion): string {
   const body = assertion.assertion.trim().replace(/^await\s+/, '');
-  const params = body.includes('expected') ? '(expected: string): Promise<void>' : '(): Promise<void>';
+  const params = assertion.expectedValue !== undefined || body.includes('expected')
+    ? '(expected: string): Promise<void>'
+    : '(): Promise<void>';
   return `  async ${assertion.methodName}${params} {\n    ${assertion.assertion.trim()}\n  }`;
 }
 
@@ -140,6 +142,7 @@ export class WebwrightPatchService {
   private patchSpecAssertion(filePath: string, assertion: WebwrightAssertionSuggestion): void {
     let source = fs.readFileSync(filePath, 'utf8');
     const pageVar = `${toCamel(assertion.pageObject).replace(/Page$/, '')}Page`;
+    const expectedArg = assertion.expectedValue !== undefined ? JSON.stringify(assertion.expectedValue) : '';
     const weakPatterns = [
       /await expect\(page\)\.not\.toHaveURL\([^)]*\);?/g,
       /await expect\(page\)\.toHaveURL\([^)]*\);?/g,
@@ -148,7 +151,7 @@ export class WebwrightPatchService {
     ];
     let patched = source;
     for (const pattern of weakPatterns) {
-      patched = patched.replace(pattern, `await ${pageVar}.${assertion.methodName}();`);
+      patched = patched.replace(pattern, `await ${pageVar}.${assertion.methodName}(${expectedArg});`);
     }
     if (patched !== source) {
       fs.writeFileSync(filePath, patched, 'utf8');

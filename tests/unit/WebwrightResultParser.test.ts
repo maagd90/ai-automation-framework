@@ -16,7 +16,7 @@ describe('WebwrightResultParser', () => {
       { selector: "[data-test='error']", strategy: 'data-test', page: 'LoginPage', confidence: 0.8 },
     ],
     recommendedAssertions: [
-      { description: 'Error visible on invalid login', selector: "[data-test='error']", assertionType: 'toBeVisible', page: 'LoginPage' },
+      { description: 'Error visible on invalid login', selector: "[data-test='error']", assertionType: 'toBeVisible', page: 'LoginPage', expectedValue: 'Error' },
       { description: 'Products heading visible after login', selector: "[role='heading']", assertionType: 'toBeVisible', page: 'ProductsPage' },
     ],
     repairSuggestions: [],
@@ -51,6 +51,7 @@ describe('WebwrightResultParser', () => {
     const result = parser.parse(validOutput);
     expect(result.recommendedAssertions).toHaveLength(2);
     expect(result.recommendedAssertions[0].assertionType).toBe('toBeVisible');
+    expect(result.recommendedAssertions[0].expectedValue).toBe('Error');
   });
 
   it('returns screenshots array', () => {

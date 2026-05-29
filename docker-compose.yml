@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ── API (Playwright + agent-core CLI) ─────────────────────────────────────────
   api:
@@ -34,6 +32,7 @@ services:
       WEBWRIGHT_MIN_CONFIDENCE: ${WEBWRIGHT_MIN_CONFIDENCE:-0.75}
       WEBWRIGHT_DOCKER_ONLY: "true"
       WEBWRIGHT_OUTPUT_DIR: /tmp/jobs/webwright
+      WEBWRIGHT_SERVICE_URL: ${WEBWRIGHT_SERVICE_URL:-http://webwright:3002}
       WEBWRIGHT_ALLOWED_DOMAINS: ${WEBWRIGHT_ALLOWED_DOMAINS:-}
       # CORS — allow the UI container (accessed from the host browser)
       ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:3000'
@@ -67,14 +66,16 @@ services:
     profiles:
       - webwright
     environment:
+      WEBWRIGHT_MODE: ${WEBWRIGHT_MODE:-repair}
       WEBWRIGHT_TIMEOUT_SECONDS: ${WEBWRIGHT_TIMEOUT_SECONDS:-180}
       WEBWRIGHT_OUTPUT_DIR: /tmp/jobs/webwright
       WEBWRIGHT_DOCKER_ONLY: "true"
+      WEBWRIGHT_PORT: "3002"
     volumes:
       - ai-agent-jobs:/tmp/jobs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import webwright; print('ok')"]
+      test: ["CMD", "python", "-c", "import urllib.request; print(urllib.request.urlopen('http://localhost:3002/health').status)"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -27,6 +27,7 @@ export interface WebwrightAssertionSuggestion {
   assertion: string;
   reason: string;
   assertionType?: string;
+  expectedValue?: string;
 }
 
 // Legacy compatibility types used by the existing sidecar service and tests.
@@ -237,6 +238,7 @@ export class WebwrightResultParser {
           selector: entry.assertion,
           assertionType: entry.assertionType ?? 'custom',
           page: entry.pageObject,
+          expectedValue: entry.expectedValue,
         })),
         ...suggestedAssertions.map((entry) => ({
           description: entry.reason,
@@ -343,11 +345,12 @@ export class WebwrightResultParser {
       const methodName = typeof entry.methodName === 'string' ? entry.methodName.trim() : '';
       const assertion = typeof entry.assertion === 'string' ? entry.assertion.trim() : '';
       const reason = typeof entry.reason === 'string' ? entry.reason : '';
+      const expectedValue = typeof entry.expectedValue === 'string' ? entry.expectedValue : undefined;
       if (!pageObject || !methodName || !assertion) {
         warnings.push('Invalid suggestedAssertion entry skipped (missing pageObject, methodName, or assertion)');
         continue;
       }
-      results.push({ pageObject, methodName, assertion, reason });
+      results.push({ pageObject, methodName, assertion, reason, expectedValue });
     }
     return results;
   }
@@ -366,15 +369,16 @@ export class WebwrightResultParser {
         warnings.push('Legacy assertion entry skipped (missing selector or assertionType)');
         continue;
       }
-      const expectedValue = typeof entry.expectedValue === 'string' ? JSON.stringify(entry.expectedValue) : undefined;
+      const expectedValue = typeof entry.expectedValue === 'string' ? entry.expectedValue : undefined;
       results.push({
         pageObject,
         methodName: deriveFieldName(pageObject, selector, description) || 'expectVisible',
         assertion: expectedValue
-          ? `await expect(this.page.locator(${JSON.stringify(selector)})).${assertionType}(${expectedValue});`
+          ? `await expect(this.page.locator(${JSON.stringify(selector)})).${assertionType}(${JSON.stringify(expectedValue)});`
           : `await expect(this.page.locator(${JSON.stringify(selector)})).${assertionType}();`,
         reason: description,
         assertionType,
+        expectedValue,
       });
     }
     return results;
