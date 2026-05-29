@@ -242,17 +242,31 @@ def main() -> None:
     # Use is_relative_to for a symlink-safe, cross-platform comparison.
     tmp_root = Path("/tmp").resolve()
     try:
-        safe_input = input_path.is_relative_to(tmp_root)
+        safe_input = input_path.resolve().is_relative_to(tmp_root)
     except AttributeError:
-        # Fallback for Python < 3.9
+        # Fallback for Python < 3.9: resolve symlinks manually before comparison.
         try:
-            input_path.relative_to(tmp_root)
+            Path(os.path.realpath(input_path)).relative_to(tmp_root)
             safe_input = True
         except ValueError:
             safe_input = False
 
     if not safe_input:
         print(json.dumps(_empty_result("failed", "Unsafe input path rejected", [])))
+        sys.exit(1)
+
+    # Security: validate output_dir is also within /tmp.
+    try:
+        safe_output = output_dir.resolve().is_relative_to(tmp_root)
+    except AttributeError:
+        try:
+            Path(os.path.realpath(output_dir)).relative_to(tmp_root)
+            safe_output = True
+        except ValueError:
+            safe_output = False
+
+    if not safe_output:
+        print(json.dumps(_empty_result("failed", "Unsafe output directory rejected", [])))
         sys.exit(1)
 
     output_dir.mkdir(parents=True, exist_ok=True)

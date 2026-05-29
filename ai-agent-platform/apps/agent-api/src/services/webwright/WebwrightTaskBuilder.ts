@@ -103,7 +103,16 @@ export class WebwrightTaskBuilder {
   /** Returns '[REDACTED]' for values associated with credential fields (username/password). */
   private redactIfSensitive(target: string | undefined, value: string): string {
     const t = (target ?? '').toLowerCase();
-    if (t.includes('password') || t.includes('username') || t.includes('email') || t.includes('credential')) {
+    if (
+      t.includes('password') ||
+      t.includes('username') ||
+      t.includes('email') ||
+      t.includes('credential') ||
+      t.includes('apikey') ||
+      t.includes('token') ||
+      t.includes('secret') ||
+      t.includes('auth')
+    ) {
       return '[REDACTED]';
     }
     return value;

@@ -19,10 +19,11 @@ const WEAK_ASSERTION_TYPES = new Set(['toHaveURL']);
 
 /**
  * CSS selectors that are considered too generic to be reliable locators.
- * Bare tag selectors (e.g. 'button', 'input', 'a') match many elements at once
+ * Bare tag selectors (e.g. 'button', 'input', 'a', 'BUTTON') match many elements at once
  * and are intentionally treated as generic — prefer role/label/data-test selectors.
+ * The tag-name pattern is case-insensitive to catch uppercase/mixed-case variants.
  */
-const GENERIC_SELECTOR_PATTERNS = [/^\.[\w-]+$/, /^#\S+$/, /^[a-z]+$/];
+const GENERIC_SELECTOR_PATTERNS = [/^\.[\w-]+$/, /^#\S+$/, /^[a-z]+$/i];
 
 function isGenericSelector(selector: string): boolean {
   return GENERIC_SELECTOR_PATTERNS.some((pattern) => pattern.test(selector.trim()));

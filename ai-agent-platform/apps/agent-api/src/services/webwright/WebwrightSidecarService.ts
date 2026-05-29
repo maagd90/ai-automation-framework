@@ -218,7 +218,7 @@ export class WebwrightSidecarService {
         const line = chunk.toString()
           .replace(/(?:key|token|password|secret|auth)=\S+/gi, '[REDACTED]')
           .replace(/"(key|token|password|secret|auth|apiKey)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
-          .replace(/Bearer\s+\S+/gi, '******');
+          .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
         stderr += line;
       });
 
