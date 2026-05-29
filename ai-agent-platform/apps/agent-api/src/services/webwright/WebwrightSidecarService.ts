@@ -1,7 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import type { TestCase, WebwrightMode, WebwrightStatus } from '@ai-agent/shared-types';
 import { webwrightConfig } from './WebwrightConfig';
 import { WebwrightTaskBuilder } from './WebwrightTaskBuilder';
@@ -33,7 +32,7 @@ export interface WebwrightSidecarResult {
 // Resolve the sidecar runner path using this file's location.
 // This file is at: ai-agent-platform/apps/agent-api/src/services/webwright/
 // Repo root is 6 levels up.
-const _thisDir = path.dirname(fileURLToPath(import.meta.url));
+const _thisDir = __dirname;
 const SIDECAR_RUNNER_PATH = path.resolve(_thisDir, '../../../../../../webwright-sidecar/runner.py');
 
 function isInsideDocker(): boolean {

@@ -151,7 +151,7 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     tmp_root = Path("/tmp").resolve()
 
-    if not str(input_path).startswith(str(tmp_root)) or not str(output_dir).startswith(str(tmp_root)):
+    if not input_path.is_relative_to(tmp_root) or not output_dir.is_relative_to(tmp_root):
         print(json.dumps(empty_result("failed", "unknown", "Unsafe path rejected", [])))
         sys.exit(1)
 

@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
 import { webwrightConfig } from './WebwrightConfig';
 import { WebwrightTaskBuilder } from './WebwrightTaskBuilder';
 import { WebwrightResultParser, type ParsedWebwrightResult } from './WebwrightResultParser';
@@ -21,10 +20,11 @@ export interface WebwrightRepairResult extends ParsedWebwrightResult {
   mode: 'repair';
   attempts: number;
   repairApplied: boolean;
+  recommendationsUsed: number;
   generatedFiles: string[];
 }
 
-const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const THIS_DIR = __dirname;
 const SIDECAR_RUNNER = path.resolve(THIS_DIR, '../../../../../../webwright-sidecar/runner.py');
 
 function isInsideDocker(): boolean {
@@ -39,6 +39,17 @@ function sanitize(text: string): string {
     .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
     .replace(/AIza[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
     .slice(0, 4000);
+}
+
+function readPreview(filePath: string, maxChars = 20_000): string {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(maxChars * 4);
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    return buffer.toString('utf8', 0, bytesRead).slice(0, maxChars);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function collectGeneratedFiles(finalDir: string): Array<{ path: string; content: string }> {
@@ -57,7 +68,7 @@ function collectGeneratedFiles(finalDir: string): Array<{ path: string; content:
       if (!/\.(ts|json)$/i.test(entry.name)) continue;
       files.push({
         path: entryPath,
-        content: fs.readFileSync(entryPath, 'utf8').slice(0, 20_000),
+        content: readPreview(entryPath),
       });
     }
   };
@@ -135,6 +146,7 @@ export class WebwrightRepairService {
       mode: 'repair',
       attempts: 1,
       repairApplied: parsed.suggestedLocators.length > 0 || parsed.suggestedAssertions.length > 0,
+      recommendationsUsed: parsed.suggestedLocators.length + parsed.suggestedAssertions.length,
       generatedFiles: generatedFiles.map((file) => file.path),
     };
   }
@@ -152,6 +164,7 @@ export class WebwrightRepairService {
       suggestedAssertions: [],
       patchSuggestions: [],
       warnings: [summary],
+      screenshots: [],
       recommendedLocators: [],
       recommendedAssertions: [],
       discoveredPages: [],
@@ -160,6 +173,7 @@ export class WebwrightRepairService {
       mode: 'repair',
       attempts: 0,
       repairApplied: false,
+      recommendationsUsed: 0,
       generatedFiles: [],
     };
   }

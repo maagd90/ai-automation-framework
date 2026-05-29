@@ -257,7 +257,7 @@ export class BatchJobManager {
               };
 
               if (repairable.allowed) {
-                const maxAttempts = Math.max(1, runtimeConfig.WEBWRIGHT_MAX_REPAIR_ATTEMPTS);
+                const maxAttempts = runtimeConfig.WEBWRIGHT_MAX_REPAIR_ATTEMPTS;
                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                   webwrightReport.attempts = attempt;
                   log(`[Webwright] Attempt ${attempt}/${maxAttempts} for ${repairable.category}`);

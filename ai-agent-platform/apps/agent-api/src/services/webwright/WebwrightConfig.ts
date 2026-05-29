@@ -8,6 +8,11 @@ function resolveMode(raw: string | undefined): WebwrightMode {
   return VALID_MODES.has(value) ? (value as WebwrightMode) : 'disabled';
 }
 
+function resolvePositiveInt(raw: string | undefined, fallback: number): number {
+  const value = Number(raw ?? fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 /**
  * Webwright sidecar configuration.
  *
@@ -22,10 +27,10 @@ export const webwrightConfig = {
   WEBWRIGHT_MODE: resolveMode(process.env.WEBWRIGHT_MODE ?? 'repair'),
 
   /** Maximum seconds to wait for a sidecar process to complete. */
-  WEBWRIGHT_TIMEOUT_SECONDS: Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS ?? 180),
+  WEBWRIGHT_TIMEOUT_SECONDS: resolvePositiveInt(process.env.WEBWRIGHT_TIMEOUT_SECONDS, 180),
 
   /** How many times repair mode may retry before giving up. */
-  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: Number(process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS ?? 2),
+  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: resolvePositiveInt(process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS, 2),
 
   /** Minimum confidence required before a suggestion is considered. */
   WEBWRIGHT_MIN_CONFIDENCE: Number(process.env.WEBWRIGHT_MIN_CONFIDENCE ?? 0.75),

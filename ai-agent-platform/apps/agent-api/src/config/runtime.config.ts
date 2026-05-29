@@ -4,6 +4,10 @@ const defaultPlaywrightBrowsersPath = process.env.CODESPACES
 
 const demoMode = process.env.DEMO_MODE === 'true';
 const rawRepairAttempts = process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS;
+const resolvePositiveInt = (raw: string | undefined, fallback: number): number => {
+  const value = Number(raw ?? fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
 
 export const runtimeConfig = {
   // Concurrency — Phase 1 demo-safe defaults
@@ -35,9 +39,9 @@ export const runtimeConfig = {
   PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || defaultPlaywrightBrowsersPath,
   ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
   WEBWRIGHT_MODE: process.env.WEBWRIGHT_MODE || 'repair',
-  WEBWRIGHT_TIMEOUT_SECONDS: Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS || 180),
+  WEBWRIGHT_TIMEOUT_SECONDS: resolvePositiveInt(process.env.WEBWRIGHT_TIMEOUT_SECONDS, 180),
   WEBWRIGHT_MAX_REPAIR_ATTEMPTS: rawRepairAttempts !== undefined
-    ? Number(rawRepairAttempts)
+    ? resolvePositiveInt(rawRepairAttempts, demoMode ? 1 : 2)
     : demoMode
       ? 1
       : 2,

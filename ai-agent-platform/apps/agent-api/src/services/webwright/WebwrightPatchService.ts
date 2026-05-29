@@ -26,6 +26,10 @@ function toCamel(value: string): string {
     .join('');
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function renderLocatorExpression(locator: WebwrightLocatorSuggestion): string {
   if (locator.selector.startsWith('page.')) {
     return `this.${locator.selector}`;
@@ -91,15 +95,17 @@ export class WebwrightPatchService {
 
   private patchPageObjectLocator(filePath: string, locator: WebwrightLocatorSuggestion): void {
     let source = fs.readFileSync(filePath, 'utf8');
-    const fieldPattern = new RegExp(`(private readonly ${locator.fieldName}\\s*=\\s*)([^;]+)(;)`);
+    const fieldPattern = new RegExp(`(private readonly ${escapeRegExp(locator.fieldName)}\\s*=\\s*)([^;]+)(;)`);
     const replacement = `$1${renderLocatorExpression(locator)}$3`;
     if (fieldPattern.test(source)) {
       source = source.replace(fieldPattern, replacement);
     } else {
       const insertion = `  private readonly ${locator.fieldName} = ${renderLocatorExpression(locator)};\n`;
-      source = source.replace(/(export class [^{]+{(?:\n|.)*?constructor\([^)]*\)\s*\{[\s\S]*?\}\n)/, `$1\n${insertion}`);
-      if (!source.includes(insertion.trim())) {
-        source = source.replace(/(\n\s*\n\s*async goto\()/, `\n${insertion}\n  async goto(`);
+      const classOpen = source.match(/(export class [^{]+{\n)/);
+      if (classOpen) {
+        source = source.replace(classOpen[1], `${classOpen[1]}${insertion}`);
+      } else {
+        source = `${insertion}${source}`;
       }
     }
     fs.writeFileSync(filePath, source, 'utf8');

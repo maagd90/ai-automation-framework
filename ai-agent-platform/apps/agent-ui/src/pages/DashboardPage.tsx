@@ -39,12 +39,6 @@ export default function DashboardPage() {
     setMaxTestCasesForJob(serverConfig.limits.maxTestCasesPerJob);
   }, [serverConfig.limits.maxTestCasesPerJob]);
 
-  useEffect(() => {
-    if (executionMode === 'generate-only') {
-      setEnableWebwright(false);
-    }
-  }, [executionMode]);
-
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
   const [allocationMode, setAllocationMode] = useState<AllocationMode>('auto');
@@ -55,6 +49,12 @@ export default function DashboardPage() {
   const [traceOnFailure, setTraceOnFailure] = useState(false);
   const [videoOnFailure, setVideoOnFailure] = useState(false);
   const [enableWebwright, setEnableWebwright] = useState(false);
+
+  useEffect(() => {
+    if (executionMode === 'generate-only') {
+      setEnableWebwright(false);
+    }
+  }, [executionMode]);
 
   // AI config
   const [provider, setProvider] = useState<AiProvider>('none');

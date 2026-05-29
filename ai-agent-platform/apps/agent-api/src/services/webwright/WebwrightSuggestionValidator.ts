@@ -101,7 +101,8 @@ export class WebwrightSuggestionValidator {
 
       for (const assertion of result.suggestedAssertions) {
         const selector = assertion.assertion.match(/this\.(page|[A-Za-z0-9_]+)\.locator\((['"`].*['"`])\)/)?.[2];
-        if (selector && await page.locator(JSON.parse(selector)).count() > 0) {
+        const parsedSelector = selector ? parseQuotedValue(selector) : undefined;
+        if (parsedSelector && await page.locator(parsedSelector).count() > 0) {
           approvedAssertions.push(assertion);
           continue;
         }
