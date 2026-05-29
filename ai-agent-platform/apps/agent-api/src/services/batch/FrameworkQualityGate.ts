@@ -27,6 +27,11 @@ export class FrameworkQualityGate {
     '__MACOSX',
     'coverage',
     'dist',
+    // Webwright sidecar and Python runtime artifacts
+    'webwright-sidecar',
+    '.venv',
+    'venv',
+    '__pycache__',
   ]);
 
   private readonly forbiddenFileNames = new Set(['.last-run.json', '.DS_Store']);
@@ -285,7 +290,7 @@ export class FrameworkQualityGate {
           continue;
         }
 
-        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml') || entry.name.endsWith('.tsbuildinfo')) {
+        if (this.forbiddenFileNames.has(entry.name) || entry.name.endsWith('.iml') || entry.name.endsWith('.tsbuildinfo') || entry.name.endsWith('.pyc') || entry.name.endsWith('.pyo')) {
           issues.push({
             code: 'forbidden-zip-artifact',
             message: `Forbidden artifact found in generated project: ${relative}`,

@@ -1,4 +1,4 @@
-import type { AiUsageSummary, BatchReport, ExecutionMode, FailureAnalysis } from '@ai-agent/shared-types';
+import type { AiUsageSummary, BatchReport, ExecutionMode, FailureAnalysis, WebwrightReport } from '@ai-agent/shared-types';
 import type { ChildRunResult } from './ChildJobRunner';
 
 /**
@@ -69,6 +69,7 @@ export class BatchReportService {
       resultsGenerated: boolean;
       reportGenerated: boolean;
     };
+    webwright?: WebwrightReport;
     aiUsage?: AiUsageSummary;
     failureAnalysis?: FailureAnalysis;
   }): BatchReport {
@@ -80,6 +81,7 @@ export class BatchReportService {
       testRunExitCode,
       testRunStdout,
       allure,
+      webwright,
       aiUsage,
       failureAnalysis,
     } = params;
@@ -150,6 +152,7 @@ export class BatchReportService {
         resultsGenerated: allure?.resultsGenerated ?? false,
         reportGenerated: allure?.reportGenerated ?? false,
       },
+      ...(webwright !== undefined ? { webwright } : {}),
       totalCases,
       passed: generationPassed,
       failed: generationFailed,

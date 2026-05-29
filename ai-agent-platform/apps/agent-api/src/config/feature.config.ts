@@ -18,4 +18,11 @@ export const featureFlags = {
 
   /** Enable the admin panel routes (Phase 2 — not yet built). */
   ENABLE_ADMIN_PANEL: process.env.ENABLE_ADMIN_PANEL === 'true',
+
+  /**
+   * Enable the optional Webwright browser-agent sidecar.
+   * When false (default), the sidecar is never invoked and adds zero overhead.
+   * Requires WEBWRIGHT_DOCKER_ONLY=false or a Docker environment when set to true.
+   */
+  ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
 };

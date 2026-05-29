@@ -97,6 +97,19 @@ export interface AllureReportStatus {
   reportGenerated: boolean;
 }
 
+export type WebwrightMode = 'disabled' | 'deep-review' | 'repair' | 'exploration';
+
+export type WebwrightStatus = 'passed' | 'failed' | 'partial' | 'skipped';
+
+export interface WebwrightReport {
+  enabled: boolean;
+  mode: WebwrightMode;
+  status: WebwrightStatus;
+  repairApplied: boolean;
+  recommendationsUsed: number;
+  warnings: string[];
+}
+
 export interface BatchReport {
   status: BatchStatus;
   /** Execution mode used for this job (for UI display). */
@@ -104,6 +117,7 @@ export interface BatchReport {
   generation: GenerationReport;
   execution: ExecutionReport;
   allure: AllureReportStatus;
+  webwright?: WebwrightReport;
   /** Backward compatibility fields. */
   totalCases: number;
   /** Number of test cases successfully generated (= totalCases when all agents succeeded). */

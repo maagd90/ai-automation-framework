@@ -1,0 +1,5 @@
+# Webwright Sidecar outputs directory
+#
+# This directory is used at runtime by runner.py to write job-scoped outputs
+# (result.json, screenshots). It is intentionally empty in the repository.
+# Contents are excluded from the generated framework ZIP by ZipService.
