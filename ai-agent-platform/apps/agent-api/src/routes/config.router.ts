@@ -29,6 +29,7 @@ router.get('/', (_req, res) => {
       traceVideo: featureFlags.ENABLE_TRACE_VIDEO,
       batchLargeUpload: featureFlags.ENABLE_BATCH_LARGE_UPLOAD,
       adminPanel: featureFlags.ENABLE_ADMIN_PANEL,
+      webwright: featureFlags.ENABLE_WEBWRIGHT,
     },
     limits: {
       maxTestCasesPerJob: runtimeConfig.MAX_TEST_CASES_PER_JOB,

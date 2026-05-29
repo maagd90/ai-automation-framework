@@ -16,6 +16,7 @@ export class JobEntity implements Job {
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
   videoOnFailure: boolean;
+  enableWebwright: boolean;
   totalCases?: number;
   processedCases?: number;
   logs: string[];
@@ -38,6 +39,7 @@ export class JobEntity implements Job {
     screenshotOnFailure?: boolean;
     traceOnFailure?: boolean;
     videoOnFailure?: boolean;
+    enableWebwright?: boolean;
   }) {
     this.jobId = params.jobId;
     this.status = 'pending';
@@ -54,6 +56,7 @@ export class JobEntity implements Job {
     this.screenshotOnFailure = params.screenshotOnFailure ?? true;
     this.traceOnFailure = params.traceOnFailure ?? false;
     this.videoOnFailure = params.videoOnFailure ?? false;
+    this.enableWebwright = params.enableWebwright ?? false;
     this.logs = [];
   }
 

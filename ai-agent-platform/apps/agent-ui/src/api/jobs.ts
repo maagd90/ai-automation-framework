@@ -21,6 +21,7 @@ export interface CreateJobParams {
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
   videoOnFailure: boolean;
+  enableWebwright: boolean;
   provider: AiProvider;
   apiKey?: string;
   model?: string;
@@ -46,6 +47,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobRespo
   formData.append('screenshotOnFailure', String(params.screenshotOnFailure));
   formData.append('traceOnFailure', String(params.traceOnFailure));
   formData.append('videoOnFailure', String(params.videoOnFailure));
+  formData.append('enableWebwright', String(params.enableWebwright));
   formData.append('provider', params.provider);
   if (params.apiKey) formData.append('apiKey', params.apiKey);
   if (params.model) formData.append('model', params.model);

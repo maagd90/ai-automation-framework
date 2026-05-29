@@ -1,7 +1,7 @@
 import type { WebwrightMode } from '@ai-agent/shared-types';
 
 /** Allowed Webwright operating modes. */
-const VALID_MODES: Set<string> = new Set(['disabled', 'deep-review', 'repair', 'exploration']);
+const VALID_MODES: Set<string> = new Set(['disabled', 'repair', 'exploration']);
 
 function resolveMode(raw: string | undefined): WebwrightMode {
   const value = raw ?? 'disabled';
@@ -18,14 +18,17 @@ export const webwrightConfig = {
   /** Master switch — set ENABLE_WEBWRIGHT=true to allow sidecar invocations. */
   ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
 
-  /** Operating mode: disabled | deep-review | repair | exploration */
-  WEBWRIGHT_MODE: resolveMode(process.env.WEBWRIGHT_MODE),
+  /** Operating mode: disabled | repair | exploration */
+  WEBWRIGHT_MODE: resolveMode(process.env.WEBWRIGHT_MODE ?? 'repair'),
 
   /** Maximum seconds to wait for a sidecar process to complete. */
   WEBWRIGHT_TIMEOUT_SECONDS: Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS ?? 180),
 
   /** How many times repair mode may retry before giving up. */
   WEBWRIGHT_MAX_REPAIR_ATTEMPTS: Number(process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS ?? 2),
+
+  /** Minimum confidence required before a suggestion is considered. */
+  WEBWRIGHT_MIN_CONFIDENCE: Number(process.env.WEBWRIGHT_MIN_CONFIDENCE ?? 0.75),
 
   /** Directory where sidecar writes its job-scoped outputs. */
   WEBWRIGHT_OUTPUT_DIR: process.env.WEBWRIGHT_OUTPUT_DIR ?? '/tmp/jobs/webwright',

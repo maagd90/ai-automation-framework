@@ -39,6 +39,12 @@ export default function DashboardPage() {
     setMaxTestCasesForJob(serverConfig.limits.maxTestCasesPerJob);
   }, [serverConfig.limits.maxTestCasesPerJob]);
 
+  useEffect(() => {
+    if (executionMode === 'generate-only') {
+      setEnableWebwright(false);
+    }
+  }, [executionMode]);
+
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
   const [allocationMode, setAllocationMode] = useState<AllocationMode>('auto');
@@ -48,6 +54,7 @@ export default function DashboardPage() {
   const [screenshotOnFailure, setScreenshotOnFailure] = useState(true);
   const [traceOnFailure, setTraceOnFailure] = useState(false);
   const [videoOnFailure, setVideoOnFailure] = useState(false);
+  const [enableWebwright, setEnableWebwright] = useState(false);
 
   // AI config
   const [provider, setProvider] = useState<AiProvider>('none');
@@ -127,6 +134,7 @@ export default function DashboardPage() {
       screenshotOnFailure,
       traceOnFailure,
       videoOnFailure,
+      enableWebwright,
       provider,
       apiKey: apiKey || undefined,
       model: model || undefined,
@@ -247,6 +255,9 @@ export default function DashboardPage() {
             onTraceOnFailureChange={setTraceOnFailure}
             videoOnFailure={videoOnFailure}
             onVideoOnFailureChange={setVideoOnFailure}
+            enableWebwright={enableWebwright}
+            onEnableWebwrightChange={setEnableWebwright}
+            webwrightEnabled={serverConfig.features.webwright}
             recommendedAgentsForDemo={serverConfig.runtime.recommendedAgentsForDemo}
           />
         </section>

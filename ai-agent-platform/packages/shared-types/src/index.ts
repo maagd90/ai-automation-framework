@@ -107,6 +107,8 @@ export interface WebwrightReport {
   status: WebwrightStatus;
   repairApplied: boolean;
   recommendationsUsed: number;
+  attempts: number;
+  failureCategory: 'locator' | 'assertion' | 'navigation' | 'page-state' | 'unknown';
   warnings: string[];
 }
 
@@ -158,6 +160,7 @@ export interface Job {
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
   videoOnFailure: boolean;
+  enableWebwright?: boolean;
   totalCases?: number;
   processedCases?: number;
   logs: string[];

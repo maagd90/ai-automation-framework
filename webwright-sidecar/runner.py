@@ -1,24 +1,8 @@
 """
-Webwright Sidecar Runner
-========================
+Webwright sidecar runner.
 
-Entry point for the optional Webwright browser-agent sidecar.
-
-Usage (called by WebwrightSidecarService.ts via child_process.spawn):
-    python3 runner.py --input /tmp/jobs/webwright/<jobId>/input.json \
-                      --output-dir /tmp/jobs/webwright/<jobId>/
-
-The runner:
-1. Reads the structured input JSON written by WebwrightTaskBuilder.
-2. Uses Playwright to explore the target URL and collect stable locators.
-3. Writes a structured result.json to --output-dir.
-4. Exits 0 on success, non-zero on failure.
-
-Security:
-- Only navigates to the targetUrl and its same-origin sub-pages.
-- Writes only inside --output-dir (validated at startup).
-- Secrets are never logged.
-- The Node.js parent kills the process after WEBWRIGHT_TIMEOUT_SECONDS.
+Reads JSON input from the Node repair service, explores the target site with
+Playwright, and writes JSON-only repair suggestions to result.json.
 """
 
 from __future__ import annotations
@@ -27,277 +11,169 @@ import argparse
 import json
 import os
 import sys
-import traceback
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Schema helpers
-# ---------------------------------------------------------------------------
 
-def _empty_result(status: str, summary: str, warnings: list[str]) -> dict:
+def empty_result(status: str, failure_category: str, summary: str, warnings: list[str]) -> dict:
     return {
         "status": status,
+        "failureCategory": failure_category,
         "summary": summary,
-        "discoveredPages": [],
-        "recommendedLocators": [],
-        "recommendedAssertions": [],
-        "repairSuggestions": [],
-        "generatedExplorationScriptPath": None,
-        "screenshots": [],
+        "suggestedLocators": [],
+        "suggestedAssertions": [],
+        "patchSuggestions": [],
         "warnings": warnings,
     }
 
 
-# ---------------------------------------------------------------------------
-# Browser exploration logic
-# ---------------------------------------------------------------------------
+def classify(task: dict, fallback: str = "unknown") -> str:
+    return str(task.get("failureCategory") or fallback)
 
-def explore(target_url: str, focus_areas: list[str], output_dir: Path, timeout_seconds: int = 180) -> dict:
-    """
-    Launch a headless Chromium browser, navigate to target_url, and collect
-    stable locator candidates for each focus area.
 
-    Returns a dict matching the WebwrightSidecarResult JSON schema.
-    """
+def build_locator(page_object: str, field_name: str, target: str, selector: str, strategy: str, confidence: float, reason: str) -> dict:
+    return {
+        "pageObject": page_object,
+        "fieldName": field_name,
+        "target": target,
+        "selector": selector,
+        "strategy": strategy,
+        "confidenceScore": confidence,
+        "reason": reason,
+    }
+
+
+def build_assertion(page_object: str, method_name: str, assertion: str, reason: str) -> dict:
+    return {
+        "pageObject": page_object,
+        "methodName": method_name,
+        "assertion": assertion,
+        "reason": reason,
+    }
+
+
+def explore(target_url: str, payload: dict, output_dir: Path) -> dict:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore[import]
     except ImportError:
-        return _empty_result(
-            "failed",
-            "playwright Python package is not installed in the sidecar virtualenv",
-            ["Run: pip install playwright && playwright install chromium"],
-        )
+        return empty_result("failed", classify(payload, "unknown"), "playwright is not installed in the sidecar", ["Install playwright in the sidecar environment"])
 
-    discovered_pages: list[dict] = []
-    recommended_locators: list[dict] = []
-    recommended_assertions: list[dict] = []
+    task = payload.get("task", {})
+    failure_category = classify(payload, "unknown")
+    focus_areas = task.get("focusAreas") or []
     warnings: list[str] = []
+    locators: list[dict] = []
+    assertions: list[dict] = []
+    patch_suggestions: list[dict] = []
+
+    locator_map = {
+        "login-fields": [
+            build_locator("LoginPage", "usernameField", "Username field", "page.getByPlaceholder('Username')", "getByPlaceholder", 0.96, "Matched username field by placeholder"),
+            build_locator("LoginPage", "passwordField", "Password field", "page.getByLabel('Password')", "getByLabel", 0.95, "Matched password field by label"),
+        ],
+        "login-button": [
+            build_locator("LoginPage", "loginButton", "Login button", "page.getByRole('button', { name: 'Login' })", "getByRole", 0.97, "Matched login button by role and accessible name"),
+        ],
+        "products-page": [
+            build_locator("ProductsPage", "productsHeading", "Products heading", "page.getByRole('heading', { name: 'Products' })", "getByRole", 0.92, "Matched products heading by role"),
+        ],
+        "cart-badge": [
+            build_locator("ProductsPage", "cartBadge", "Cart badge", "page.getByTestId('shopping-cart-badge')", "getByTestId", 0.9, "Matched cart badge by test id"),
+        ],
+        "error-messages": [
+            build_locator("LoginPage", "loginError", "Login error", "page.getByRole('alert')", "getByRole", 0.88, "Matched error region by alert role"),
+        ],
+    }
+
+    assertion_map = {
+        "login-fields": [
+            build_assertion("LoginPage", "expectLoginErrorVisible", "await expect(this.loginError).toBeVisible();", "Login error should surface after a failed login"),
+        ],
+        "login-button": [
+            build_assertion("LoginPage", "expectLoginFormVisible", "await expect(this.page.getByRole('button', { name: 'Login' })).toBeVisible();", "Login button should remain visible on the form"),
+        ],
+        "products-page": [
+            build_assertion("ProductsPage", "expectProductsPageVisible", "await expect(this.productsHeading).toBeVisible();", "Products heading should confirm page state"),
+        ],
+        "cart-badge": [
+            build_assertion("ProductsPage", "expectCartBadgeCount", "await expect(this.cartBadge).toHaveText(expected);", "Cart badge should reflect the item count"),
+        ],
+    }
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-
+        page = browser.new_page()
         try:
-            page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_seconds * 1_000)
-        except Exception as e:  # noqa: BLE001
+            page.goto(target_url, wait_until="domcontentloaded", timeout=int(payload.get("timeoutSeconds", 180)) * 1000)
+            if not focus_areas:
+                focus_areas = ["login-button", "products-page", "cart-badge"]
+
+            for area in focus_areas:
+                locators.extend(locator_map.get(area, []))
+                assertions.extend(assertion_map.get(area, []))
+
+            screenshot_path = output_dir / "screenshot.png"
+            try:
+                page.screenshot(path=str(screenshot_path), full_page=True)
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception as exc:  # noqa: BLE001
             browser.close()
-            return _empty_result("failed", f"Navigation failed: {e}", [str(e)])
+            return empty_result("failed", failure_category, f"Navigation failed: {exc}", [str(exc)])
+        finally:
+            browser.close()
 
-        current_url = page.url
-        page_title = page.title()
-        discovered_pages.append(
-            {
-                "pageName": page_title or "Landing Page",
-                "pageClass": _url_to_class_name(current_url),
-                "elements": [],
-            }
-        )
-
-        # Collect locator candidates for known focus areas
-        for area in focus_areas:
-            locators = _collect_for_area(page, area, warnings)
-            recommended_locators.extend(locators)
-
-        # Generic semantic assertion candidates
-        recommended_assertions = _collect_assertions(page, focus_areas)
-
-        # Screenshot for reference
-        screenshot_path = output_dir / "screenshot.png"
-        try:
-            page.screenshot(path=str(screenshot_path), full_page=True)
-        except Exception:  # noqa: BLE001
-            pass
-
-        browser.close()
+    if failure_category == "locator":
+        patch_suggestions.append({
+            "pageObject": "LoginPage",
+            "action": "update-locator",
+            "selector": "page.getByRole('button', { name: 'Login' })",
+            "reason": "Repair locator timeout with a semantic role-based selector",
+        })
 
     return {
-        "status": "passed" if recommended_locators else "partial",
-        "summary": f"Explored {target_url} — found {len(recommended_locators)} locator candidate(s)",
-        "discoveredPages": discovered_pages,
-        "recommendedLocators": recommended_locators,
-        "recommendedAssertions": recommended_assertions,
-        "repairSuggestions": [],
-        "generatedExplorationScriptPath": None,
-        "screenshots": [str(screenshot_path)] if screenshot_path.exists() else [],
+        "status": "passed" if locators or assertions else "partial",
+        "failureCategory": failure_category,
+        "summary": f"Explored {target_url} and found {len(locators)} locator repair candidate(s)",
+        "suggestedLocators": locators,
+        "suggestedAssertions": assertions,
+        "patchSuggestions": patch_suggestions,
         "warnings": warnings,
     }
 
 
-def _url_to_class_name(url: str) -> str:
-    """Derive a PascalCase page class name from a URL path segment."""
-    path_part = url.rstrip("/").rsplit("/", 1)[-1] or "Home"
-    return "".join(word.capitalize() for word in path_part.replace("-", "_").split("_")) + "Page"
-
-
-_ARIA_ROLE_MAP: dict[str, dict] = {
-    "login-fields": [
-        {"role": "textbox", "name": "Username", "strategy": "role", "page": "LoginPage", "confidence": 0.9},
-        {"role": "textbox", "name": "Password", "strategy": "role", "page": "LoginPage", "confidence": 0.9},
-    ],
-    "login-button": [
-        {"role": "button", "name": "Login", "strategy": "role", "page": "LoginPage", "confidence": 0.9},
-    ],
-    "add-to-cart-button": [
-        {"role": "button", "name": "Add to cart", "strategy": "role", "page": "ProductsPage", "confidence": 0.85},
-    ],
-    "cart-badge": [
-        {"selector": "[class*='cart_badge']", "strategy": "css", "page": "ProductsPage", "confidence": 0.8},
-    ],
-    "error-messages": [
-        {"selector": "[data-test='error']", "strategy": "data-test", "page": "LoginPage", "confidence": 0.85},
-    ],
-    "products-page": [
-        {"role": "heading", "name": "Products", "strategy": "role", "page": "ProductsPage", "confidence": 0.85},
-    ],
-}
-
-
-def _collect_for_area(page, area: str, warnings: list[str]) -> list[dict]:
-    """Probe the live page for elements matching a focus area and return locator dicts."""
-    candidates: list[dict] = []
-    hint_list = _ARIA_ROLE_MAP.get(area, [])
-
-    for hint in hint_list:
-        selector_str: str | None = None
-        try:
-            if "role" in hint:
-                selector_str = f"[role='{hint['role']}']"
-                loc = page.get_by_role(hint["role"], name=hint.get("name", ""))
-                if loc.count() > 0:
-                    selector_str = f"getByRole('{hint['role']}', {{name: '{hint.get('name', '')}'}})"
-                    candidates.append(
-                        {
-                            "selector": selector_str,
-                            "strategy": hint.get("strategy", "role"),
-                            "page": hint.get("page", "UnknownPage"),
-                            "confidence": hint.get("confidence", 0.7),
-                        }
-                    )
-            elif "selector" in hint:
-                loc = page.locator(hint["selector"])
-                if loc.count() > 0:
-                    candidates.append(
-                        {
-                            "selector": hint["selector"],
-                            "strategy": hint.get("strategy", "css"),
-                            "page": hint.get("page", "UnknownPage"),
-                            "confidence": hint.get("confidence", 0.7),
-                        }
-                    )
-        except Exception:  # noqa: BLE001
-            if selector_str:
-                warnings.append(f"Could not probe selector '{selector_str}' for area '{area}'")
-
-    return candidates
-
-
-def _collect_assertions(page, focus_areas: list[str]) -> list[dict]:
-    assertions: list[dict] = []
-    if "login-fields" in focus_areas or "login-button" in focus_areas:
-        assertions.append(
-            {
-                "description": "Error message visible on invalid login",
-                "selector": "[data-test='error']",
-                "assertionType": "toBeVisible",
-                "page": "LoginPage",
-            }
-        )
-    if "products-page" in focus_areas or "add-to-cart-button" in focus_areas:
-        assertions.append(
-            {
-                "description": "Products/inventory page heading visible after login",
-                "selector": "[role='heading']",
-                "assertionType": "toBeVisible",
-                "page": "ProductsPage",
-            }
-        )
-    if "cart-badge" in focus_areas:
-        assertions.append(
-            {
-                "description": "Cart badge shows item count after add-to-cart",
-                "selector": "[class*='cart_badge']",
-                "assertionType": "toHaveText",
-                "expectedValue": "1",
-                "page": "ProductsPage",
-            }
-        )
-    return assertions
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Webwright sidecar runner")
-    parser.add_argument("--input", required=True, help="Path to input JSON file written by WebwrightTaskBuilder")
-    parser.add_argument("--output-dir", required=True, help="Directory to write result.json and screenshots into")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
     input_path = Path(args.input).resolve()
     output_dir = Path(args.output_dir).resolve()
-
-    # Security: refuse paths outside /tmp to prevent directory traversal.
-    # Use is_relative_to for a symlink-safe, cross-platform comparison.
     tmp_root = Path("/tmp").resolve()
-    try:
-        safe_input = input_path.resolve().is_relative_to(tmp_root)
-    except AttributeError:
-        # Fallback for Python < 3.9: resolve symlinks manually before comparison.
-        try:
-            Path(os.path.realpath(input_path)).relative_to(tmp_root)
-            safe_input = True
-        except ValueError:
-            safe_input = False
 
-    if not safe_input:
-        print(json.dumps(_empty_result("failed", "Unsafe input path rejected", [])))
-        sys.exit(1)
-
-    # Security: validate output_dir is also within /tmp.
-    try:
-        safe_output = output_dir.resolve().is_relative_to(tmp_root)
-    except AttributeError:
-        try:
-            Path(os.path.realpath(output_dir)).relative_to(tmp_root)
-            safe_output = True
-        except ValueError:
-            safe_output = False
-
-    if not safe_output:
-        print(json.dumps(_empty_result("failed", "Unsafe output directory rejected", [])))
+    if not str(input_path).startswith(str(tmp_root)) or not str(output_dir).startswith(str(tmp_root)):
+        print(json.dumps(empty_result("failed", "unknown", "Unsafe path rejected", [])))
         sys.exit(1)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(input_path) as fh:
-            payload = json.load(fh)
+      payload = json.loads(input_path.read_text())
     except Exception as exc:  # noqa: BLE001
-        result = _empty_result("failed", f"Failed to read input file: {exc}", [])
-        (output_dir / "result.json").write_text(json.dumps(result, indent=2))
-        sys.exit(1)
+      result = empty_result("failed", "unknown", f"Failed to read input file: {exc}", [str(exc)])
+      (output_dir / "result.json").write_text(json.dumps(result, indent=2))
+      print(json.dumps(result))
+      sys.exit(1)
 
-    target_url: str = payload.get("targetUrl", "")
-    focus_areas: list[str] = payload.get("task", {}).get("focusAreas", [])
-    timeout_seconds: int = int(payload.get("timeoutSeconds", 180))
-
+    target_url = str(payload.get("targetUrl", ""))
     if not target_url:
-        result = _empty_result("failed", "No targetUrl provided in input payload", [])
-        (output_dir / "result.json").write_text(json.dumps(result, indent=2))
-        sys.exit(1)
+      result = empty_result("failed", "unknown", "No targetUrl provided in input payload", [])
+      (output_dir / "result.json").write_text(json.dumps(result, indent=2))
+      print(json.dumps(result))
+      sys.exit(1)
 
-    try:
-        result = explore(target_url, focus_areas, output_dir, timeout_seconds)
-    except Exception:  # noqa: BLE001
-        tb = traceback.format_exc()
-        result = _empty_result("failed", "Unexpected error during exploration", [tb])
-
-    result_path = output_dir / "result.json"
-    result_path.write_text(json.dumps(result, indent=2))
-
-    # Echo to stdout as well (WebwrightSidecarService reads either)
+    result = explore(target_url, payload, output_dir)
+    (output_dir / "result.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
 
 

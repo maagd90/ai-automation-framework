@@ -6,6 +6,7 @@ export interface ServerFeatureFlags {
   traceVideo: boolean;
   batchLargeUpload: boolean;
   adminPanel: boolean;
+  webwright: boolean;
 }
 
 export interface ServerLimits {
@@ -41,6 +42,7 @@ export const DEFAULT_SERVER_CONFIG: ServerConfig = {
     traceVideo: false,
     batchLargeUpload: false,
     adminPanel: false,
+    webwright: false,
   },
   limits: {
     maxTestCasesPerJob: 5,

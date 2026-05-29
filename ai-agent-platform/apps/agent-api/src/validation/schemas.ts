@@ -35,6 +35,10 @@ export const ExecutionConfigSchema = z.object({
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
     .default(false),
+  enableWebwright: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(false),
 });
 
 export const AiConfigSchema = z.object({

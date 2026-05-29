@@ -1,14 +1,37 @@
-/**
- * Internal models produced by the Webwright result parser.
- * These are used inside our pipeline and are independent from the raw
- * Webwright sidecar output schema.
- */
+import type { WebwrightFailureCategory } from './WebwrightFailureClassifier';
 
+export type WebwrightStatus = 'passed' | 'failed' | 'partial';
+export type WebwrightStrategy =
+  | 'getByTestId'
+  | 'getByRole'
+  | 'getByLabel'
+  | 'getByPlaceholder'
+  | 'getByText'
+  | 'css'
+  | 'xpath';
+
+export interface WebwrightLocatorSuggestion {
+  pageObject: string;
+  fieldName: string;
+  target: string;
+  selector: string;
+  strategy: WebwrightStrategy;
+  confidenceScore: number;
+  reason: string;
+}
+
+export interface WebwrightAssertionSuggestion {
+  pageObject: string;
+  methodName: string;
+  assertion: string;
+  reason: string;
+}
+
+// Legacy compatibility types used by the existing sidecar service and tests.
 export interface LocatorResult {
   selector: string;
-  strategy: 'role' | 'label' | 'data-test' | 'css' | 'xpath' | 'text';
+  strategy: string;
   page: string;
-  /** Confidence score in the range [0, 1]. Values below 0.6 trigger a warning. */
   confidence: number;
   description?: string;
 }
@@ -16,71 +39,135 @@ export interface LocatorResult {
 export interface AssertionPlan {
   description: string;
   selector: string;
-  /** Type of assertion to apply. */
-  assertionType: 'toBeVisible' | 'toHaveText' | 'toHaveURL' | 'toHaveCount' | 'toContainText';
+  assertionType: string;
   expectedValue?: string;
   page: string;
 }
 
-export interface PageOwnershipModel {
-  pageName: string;
-  /** Logical path under src/pages/ (e.g. "LoginPage", "ProductsPage"). */
-  pageClass: string;
-  elements: string[];
-}
-
-export interface RepairSuggestion {
-  brokenSelector: string;
-  suggestedSelector: string;
-  strategy: string;
+export interface WebwrightPatchSuggestion {
+  pageObject: string;
+  filePath?: string;
+  action: 'update-locator' | 'add-assertion-method' | 'replace-assertion' | 'update-locator-json';
+  selector?: string;
   reason: string;
 }
 
 export interface ParsedWebwrightResult {
-  status: 'passed' | 'failed' | 'partial';
+  status: WebwrightStatus;
+  failureCategory: WebwrightFailureCategory;
   summary: string;
-  discoveredPages: PageOwnershipModel[];
+  suggestedLocators: WebwrightLocatorSuggestion[];
+  suggestedAssertions: WebwrightAssertionSuggestion[];
+  patchSuggestions: WebwrightPatchSuggestion[];
+  warnings: string[];
+  // Legacy aliases kept for backward compatibility with existing consumers/tests.
   recommendedLocators: LocatorResult[];
   recommendedAssertions: AssertionPlan[];
-  repairSuggestions: RepairSuggestion[];
-  generatedExplorationScriptPath?: string;
-  screenshots: string[];
-  warnings: string[];
+  discoveredPages: Array<{
+    pageName: string;
+    pageClass: string;
+    elements: string[];
+  }>;
+  repairSuggestions: Array<{
+    brokenSelector: string;
+    suggestedSelector: string;
+    strategy: string;
+    reason: string;
+  }>;
 }
 
-/** Raw shape expected from the sidecar process stdout / JSON file. */
 interface RawWebwrightOutput {
   status?: unknown;
+  failureCategory?: unknown;
   summary?: unknown;
-  discoveredPages?: unknown[];
-  recommendedLocators?: unknown[];
-  recommendedAssertions?: unknown[];
-  repairSuggestions?: unknown[];
-  generatedExplorationScriptPath?: unknown;
-  screenshots?: unknown[];
-  warnings?: unknown[];
+  suggestedLocators?: unknown;
+  suggestedAssertions?: unknown;
+  patchSuggestions?: unknown;
+  warnings?: unknown;
+  // legacy keys
+  recommendedLocators?: unknown;
+  recommendedAssertions?: unknown;
+  discoveredPages?: unknown;
+  repairSuggestions?: unknown;
 }
 
-const VALID_STATUSES = new Set(['passed', 'failed', 'partial']);
-const VALID_ASSERTION_TYPES = new Set(['toBeVisible', 'toHaveText', 'toHaveURL', 'toHaveCount', 'toContainText']);
-const VALID_LOCATOR_STRATEGIES = new Set(['role', 'label', 'data-test', 'css', 'xpath', 'text']);
-const LOCATOR_CONFIDENCE_THRESHOLD = 0.6;
+const VALID_STATUSES = new Set<WebwrightStatus>(['passed', 'failed', 'partial']);
+const VALID_FAILURE_CATEGORIES = new Set<WebwrightFailureCategory>([
+  'locator',
+  'assertion',
+  'navigation',
+  'page-state',
+  'unknown',
+]);
+const VALID_STRATEGIES = new Set<WebwrightStrategy>([
+  'getByTestId',
+  'getByRole',
+  'getByLabel',
+  'getByPlaceholder',
+  'getByText',
+  'css',
+  'xpath',
+]);
+const STRATEGY_ALIASES: Record<string, WebwrightStrategy> = {
+  role: 'getByRole',
+  label: 'getByLabel',
+  placeholder: 'getByPlaceholder',
+  text: 'getByText',
+  css: 'css',
+  xpath: 'xpath',
+  'data-test': 'getByTestId',
+  'data-testid': 'getByTestId',
+  getByTestId: 'getByTestId',
+  getByRole: 'getByRole',
+  getByLabel: 'getByLabel',
+  getByPlaceholder: 'getByPlaceholder',
+  getByText: 'getByText',
+};
 
-/**
- * Parses and validates the raw JSON output produced by the Webwright sidecar.
- *
- * This class is deliberately defensive: every field is validated before being
- * accepted into the internal model. Unknown or malformed data is silently
- * dropped and a warning is appended instead.
- */
+function normalizeStrategy(raw: unknown): WebwrightStrategy | null {
+  const key = String(raw ?? '').trim();
+  if (VALID_STRATEGIES.has(key as WebwrightStrategy)) {
+    return key as WebwrightStrategy;
+  }
+  return STRATEGY_ALIASES[key] ?? null;
+}
+
+function normalizeConfidence(raw: unknown): number | null {
+  if (typeof raw !== 'number' || Number.isNaN(raw) || !Number.isFinite(raw)) return null;
+  if (raw < 0) return null;
+  if (raw <= 1) return raw;
+  if (raw <= 100) return raw / 100;
+  return null;
+}
+
+function deriveFieldName(pageObject: string, selector: string, target?: string): string {
+  const source = target || selector || pageObject;
+  const tokens = source
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return 'locator';
+  return tokens
+    .map((token, index) =>
+      index === 0
+        ? token.charAt(0).toLowerCase() + token.slice(1)
+        : token.charAt(0).toUpperCase() + token.slice(1),
+    )
+    .join('')
+    .replace(/^(page|button|input|field)$/i, 'locator');
+}
+
+function derivePageClass(pageObject: string): string {
+  if (pageObject.endsWith('Page')) return pageObject;
+  return `${pageObject.replace(/[^a-zA-Z0-9]/g, '')}Page`;
+}
+
+function parseStringArray(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : [];
+}
+
 export class WebwrightResultParser {
-  /**
-   * Parses a raw JSON string from the sidecar into a validated internal result.
-   *
-   * @param rawJson - The stdout/file content from the sidecar process.
-   * @returns A fully validated ParsedWebwrightResult.
-   * @throws {Error} if the JSON cannot be parsed or the root object is missing.
-   */
   parse(rawJson: string): ParsedWebwrightResult {
     let raw: RawWebwrightOutput;
     try {
@@ -93,140 +180,255 @@ export class WebwrightResultParser {
       throw new Error('Webwright sidecar output must be a JSON object');
     }
 
-    const warnings: string[] = this.parseStringArray(raw.warnings);
+    const warnings = parseStringArray(raw.warnings);
 
-    const status = VALID_STATUSES.has(String(raw.status))
-      ? (raw.status as ParsedWebwrightResult['status'])
+    const status = VALID_STATUSES.has(raw.status as WebwrightStatus)
+      ? (raw.status as WebwrightStatus)
       : 'failed';
-
-    if (!VALID_STATUSES.has(String(raw.status))) {
+    if (!VALID_STATUSES.has(raw.status as WebwrightStatus)) {
       warnings.push(`Unknown status value "${String(raw.status)}" — defaulting to "failed"`);
     }
 
-    const locators = this.parseLocators(raw.recommendedLocators, warnings);
-    const assertions = this.parseAssertions(raw.recommendedAssertions, warnings);
-    const pages = this.parsePages(raw.discoveredPages, warnings);
-    const repairs = this.parseRepairs(raw.repairSuggestions, warnings);
+    const failureCategory = VALID_FAILURE_CATEGORIES.has(raw.failureCategory as WebwrightFailureCategory)
+      ? (raw.failureCategory as WebwrightFailureCategory)
+      : 'unknown';
+    if (!VALID_FAILURE_CATEGORIES.has(raw.failureCategory as WebwrightFailureCategory)) {
+      warnings.push(`Unknown failureCategory "${String(raw.failureCategory)}" — defaulting to "unknown"`);
+    }
+
+    const suggestedLocators = [
+      ...this.parseSuggestedLocators(raw.suggestedLocators, warnings),
+      ...this.parseLegacyLocators(raw.recommendedLocators, warnings),
+    ];
+    const suggestedAssertions = [
+      ...this.parseSuggestedAssertions(raw.suggestedAssertions, warnings),
+      ...this.parseLegacyAssertions(raw.recommendedAssertions, warnings),
+    ];
+    const patchSuggestions = [
+      ...this.parsePatchSuggestions(raw.patchSuggestions, warnings),
+      ...this.parseLegacyRepairs(raw.repairSuggestions, warnings),
+    ];
+
+    const discoveredPages = this.buildDiscoveredPages(raw.discoveredPages, suggestedLocators);
 
     return {
       status,
+      failureCategory,
       summary: typeof raw.summary === 'string' ? raw.summary : '',
-      discoveredPages: pages,
-      recommendedLocators: locators,
-      recommendedAssertions: assertions,
-      repairSuggestions: repairs,
-      generatedExplorationScriptPath:
-        typeof raw.generatedExplorationScriptPath === 'string'
-          ? raw.generatedExplorationScriptPath
-          : undefined,
-      screenshots: this.parseStringArray(raw.screenshots),
+      suggestedLocators,
+      suggestedAssertions,
+      patchSuggestions,
       warnings,
+      recommendedLocators: suggestedLocators.map((entry) => ({
+        selector: entry.selector,
+        strategy: entry.strategy,
+        page: entry.pageObject,
+        confidence: entry.confidenceScore,
+        description: entry.reason,
+      })),
+      recommendedAssertions: suggestedAssertions.map((entry) => ({
+        description: entry.reason,
+        selector: entry.assertion,
+        assertionType: 'custom',
+        page: entry.pageObject,
+      })),
+      discoveredPages,
+      repairSuggestions: patchSuggestions.map((entry) => ({
+        brokenSelector: entry.selector ?? '',
+        suggestedSelector: entry.selector ?? '',
+        strategy: entry.action,
+        reason: entry.reason,
+      })),
     };
   }
 
-  private parseLocators(raw: unknown, warnings: string[]): LocatorResult[] {
+  private parseSuggestedLocators(raw: unknown, warnings: string[]): WebwrightLocatorSuggestion[] {
     if (!Array.isArray(raw)) return [];
-    const results: LocatorResult[] = [];
+    const results: WebwrightLocatorSuggestion[] = [];
     for (const item of raw) {
       if (typeof item !== 'object' || item === null) continue;
       const entry = item as Record<string, unknown>;
-      const selector = typeof entry['selector'] === 'string' ? entry['selector'] : '';
-      const strategy = VALID_LOCATOR_STRATEGIES.has(String(entry['strategy']))
-        ? (entry['strategy'] as LocatorResult['strategy'])
-        : 'css';
-      const page = typeof entry['page'] === 'string' ? entry['page'] : 'UnknownPage';
-      const confidence = typeof entry['confidence'] === 'number' ? entry['confidence'] : 0;
+      const pageObject = typeof entry.pageObject === 'string' ? entry.pageObject.trim() : '';
+      const selector = typeof entry.selector === 'string' ? entry.selector.trim() : '';
+      const strategy = normalizeStrategy(entry.strategy);
+      const confidenceScore = normalizeConfidence(entry.confidenceScore);
+      const reason = typeof entry.reason === 'string' ? entry.reason : '';
+      const fieldName = typeof entry.fieldName === 'string' && entry.fieldName.trim()
+        ? entry.fieldName.trim()
+        : deriveFieldName(pageObject, selector, typeof entry.target === 'string' ? entry.target : undefined);
+      const target = typeof entry.target === 'string' ? entry.target : fieldName;
 
-      if (!selector) {
-        warnings.push('Locator entry missing selector — skipped');
+      if (!pageObject || !selector || !strategy || confidenceScore === null) {
+        warnings.push('Invalid suggestedLocator entry skipped');
         continue;
       }
-      if (confidence < LOCATOR_CONFIDENCE_THRESHOLD) {
-        warnings.push(`Low-confidence locator "${selector}" (${confidence.toFixed(2)}) — verify before use`);
-      }
+
       results.push({
+        pageObject,
+        fieldName,
+        target,
         selector,
         strategy,
-        page,
-        confidence,
-        description: typeof entry['description'] === 'string' ? entry['description'] : undefined,
+        confidenceScore,
+        reason,
       });
     }
     return results;
   }
 
-  private parseAssertions(raw: unknown, warnings: string[]): AssertionPlan[] {
+  private parseLegacyLocators(raw: unknown, warnings: string[]): WebwrightLocatorSuggestion[] {
     if (!Array.isArray(raw)) return [];
-    const results: AssertionPlan[] = [];
+    const results: WebwrightLocatorSuggestion[] = [];
     for (const item of raw) {
       if (typeof item !== 'object' || item === null) continue;
       const entry = item as Record<string, unknown>;
-      const description = typeof entry['description'] === 'string' ? entry['description'] : '';
-      const selector = typeof entry['selector'] === 'string' ? entry['selector'] : '';
-      const assertionType = VALID_ASSERTION_TYPES.has(String(entry['assertionType']))
-        ? (entry['assertionType'] as AssertionPlan['assertionType'])
-        : null;
-      const page = typeof entry['page'] === 'string' ? entry['page'] : 'UnknownPage';
-
-      if (!selector || !assertionType) {
-        warnings.push(`Assertion entry missing selector or assertionType — skipped (description: "${description}")`);
+      const selector = typeof entry.selector === 'string' ? entry.selector.trim() : '';
+      const pageObject = typeof entry.page === 'string' && entry.page.trim()
+        ? entry.page.trim()
+        : typeof entry.pageObject === 'string' && entry.pageObject.trim()
+          ? entry.pageObject.trim()
+          : '';
+      const strategy = normalizeStrategy(entry.strategy);
+      const confidenceScore = normalizeConfidence(entry.confidence ?? entry.confidenceScore);
+      if (!selector || !pageObject || !strategy || confidenceScore === null) {
+        warnings.push('Legacy locator entry skipped');
         continue;
       }
       results.push({
-        description,
+        pageObject,
+        fieldName: typeof entry.fieldName === 'string' && entry.fieldName.trim()
+          ? entry.fieldName.trim()
+          : deriveFieldName(pageObject, selector, typeof entry.description === 'string' ? entry.description : undefined),
+        target: typeof entry.description === 'string' ? entry.description : selector,
         selector,
-        assertionType,
-        expectedValue: typeof entry['expectedValue'] === 'string' ? entry['expectedValue'] : undefined,
-        page,
+        strategy,
+        confidenceScore,
+        reason: typeof entry.description === 'string' ? entry.description : '',
       });
     }
     return results;
   }
 
-  private parsePages(raw: unknown, warnings: string[]): PageOwnershipModel[] {
+  private parseSuggestedAssertions(raw: unknown, warnings: string[]): WebwrightAssertionSuggestion[] {
     if (!Array.isArray(raw)) return [];
-    const results: PageOwnershipModel[] = [];
+    const results: WebwrightAssertionSuggestion[] = [];
     for (const item of raw) {
       if (typeof item !== 'object' || item === null) continue;
       const entry = item as Record<string, unknown>;
-      const pageName = typeof entry['pageName'] === 'string' ? entry['pageName'] : '';
-      const pageClass = typeof entry['pageClass'] === 'string' ? entry['pageClass'] : pageName;
-      const elements = Array.isArray(entry['elements'])
-        ? entry['elements'].filter((e): e is string => typeof e === 'string')
-        : [];
-      if (!pageName) {
-        warnings.push('DiscoveredPage entry missing pageName — skipped');
+      const pageObject = typeof entry.pageObject === 'string' ? entry.pageObject.trim() : '';
+      const methodName = typeof entry.methodName === 'string' ? entry.methodName.trim() : '';
+      const assertion = typeof entry.assertion === 'string' ? entry.assertion.trim() : '';
+      const reason = typeof entry.reason === 'string' ? entry.reason : '';
+      if (!pageObject || !methodName || !assertion) {
+        warnings.push('Invalid suggestedAssertion entry skipped');
         continue;
       }
-      results.push({ pageName, pageClass, elements });
+      results.push({ pageObject, methodName, assertion, reason });
     }
     return results;
   }
 
-  private parseRepairs(raw: unknown, warnings: string[]): RepairSuggestion[] {
+  private parseLegacyAssertions(raw: unknown, warnings: string[]): WebwrightAssertionSuggestion[] {
     if (!Array.isArray(raw)) return [];
-    const results: RepairSuggestion[] = [];
+    const results: WebwrightAssertionSuggestion[] = [];
     for (const item of raw) {
       if (typeof item !== 'object' || item === null) continue;
       const entry = item as Record<string, unknown>;
-      const brokenSelector = typeof entry['brokenSelector'] === 'string' ? entry['brokenSelector'] : '';
-      const suggestedSelector = typeof entry['suggestedSelector'] === 'string' ? entry['suggestedSelector'] : '';
-      if (!brokenSelector || !suggestedSelector) {
-        warnings.push('RepairSuggestion missing brokenSelector or suggestedSelector — skipped');
+      const pageObject = typeof entry.page === 'string' ? entry.page.trim() : '';
+      const selector = typeof entry.selector === 'string' ? entry.selector.trim() : '';
+      const description = typeof entry.description === 'string' ? entry.description : '';
+      const assertionType = typeof entry.assertionType === 'string' ? entry.assertionType : '';
+      if (!pageObject || !selector || !assertionType) {
+        warnings.push('Legacy assertion entry skipped');
         continue;
       }
       results.push({
-        brokenSelector,
-        suggestedSelector,
-        strategy: typeof entry['strategy'] === 'string' ? entry['strategy'] : 'css',
-        reason: typeof entry['reason'] === 'string' ? entry['reason'] : '',
+        pageObject,
+        methodName: deriveFieldName(pageObject, selector, description) || 'expectVisible',
+        assertion: `await expect(this.page.locator(${JSON.stringify(selector)})).${assertionType}(${typeof entry.expectedValue === 'string' ? JSON.stringify(entry.expectedValue) : ''});`,
+        reason: description,
       });
     }
     return results;
   }
 
-  private parseStringArray(raw: unknown): string[] {
+  private parsePatchSuggestions(raw: unknown, warnings: string[]): WebwrightPatchSuggestion[] {
     if (!Array.isArray(raw)) return [];
-    return raw.filter((e): e is string => typeof e === 'string');
+    const results: WebwrightPatchSuggestion[] = [];
+    for (const item of raw) {
+      if (typeof item !== 'object' || item === null) continue;
+      const entry = item as Record<string, unknown>;
+      const pageObject = typeof entry.pageObject === 'string' ? entry.pageObject.trim() : '';
+      const action = String(entry.action ?? '') as WebwrightPatchSuggestion['action'];
+      const reason = typeof entry.reason === 'string' ? entry.reason : '';
+      if (!pageObject || !['update-locator', 'add-assertion-method', 'replace-assertion', 'update-locator-json'].includes(action)) {
+        warnings.push('Invalid patchSuggestion entry skipped');
+        continue;
+      }
+      results.push({
+        pageObject,
+        action,
+        filePath: typeof entry.filePath === 'string' ? entry.filePath : undefined,
+        selector: typeof entry.selector === 'string' ? entry.selector : undefined,
+        reason,
+      });
+    }
+    return results;
+  }
+
+  private parseLegacyRepairs(raw: unknown, warnings: string[]): WebwrightPatchSuggestion[] {
+    if (!Array.isArray(raw)) return [];
+    const results: WebwrightPatchSuggestion[] = [];
+    for (const item of raw) {
+      if (typeof item !== 'object' || item === null) continue;
+      const entry = item as Record<string, unknown>;
+      const suggestedSelector = typeof entry.suggestedSelector === 'string' ? entry.suggestedSelector.trim() : '';
+      if (!suggestedSelector) {
+        warnings.push('Legacy repair suggestion skipped');
+        continue;
+      }
+      results.push({
+        pageObject: typeof entry.pageObject === 'string' ? entry.pageObject : 'UnknownPage',
+        action: 'update-locator',
+        selector: suggestedSelector,
+        reason: typeof entry.reason === 'string' ? entry.reason : '',
+      });
+    }
+    return results;
+  }
+
+  private buildDiscoveredPages(
+    raw: unknown,
+    locators: WebwrightLocatorSuggestion[],
+  ): Array<{ pageName: string; pageClass: string; elements: string[] }> {
+    const fromRaw = Array.isArray(raw)
+      ? raw
+          .map((item) => {
+            if (typeof item !== 'object' || item === null) return null;
+            const entry = item as Record<string, unknown>;
+            const pageName = typeof entry.pageName === 'string' ? entry.pageName : '';
+            const pageClass = typeof entry.pageClass === 'string' ? entry.pageClass : derivePageClass(pageName);
+            const elements = Array.isArray(entry.elements)
+              ? entry.elements.filter((value): value is string => typeof value === 'string')
+              : [];
+            return pageName ? { pageName, pageClass, elements } : null;
+          })
+          .filter((item): item is { pageName: string; pageClass: string; elements: string[] } => Boolean(item))
+      : [];
+
+    if (fromRaw.length > 0) return fromRaw;
+
+    const pageObjects = new Map<string, string[]>();
+    for (const locator of locators) {
+      const elements = pageObjects.get(locator.pageObject) ?? [];
+      elements.push(locator.fieldName);
+      pageObjects.set(locator.pageObject, elements);
+    }
+
+    return Array.from(pageObjects.entries()).map(([pageObject, elements]) => ({
+      pageName: pageObject,
+      pageClass: derivePageClass(pageObject),
+      elements,
+    }));
   }
 }

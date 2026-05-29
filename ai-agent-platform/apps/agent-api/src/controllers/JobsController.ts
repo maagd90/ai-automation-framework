@@ -136,6 +136,7 @@ export class JobsController {
       parallelAgents,
       retryCount,
       screenshotOnFailure,
+      enableWebwright,
       provider: rawProvider,
       apiKey,
       model,
@@ -163,6 +164,11 @@ export class JobsController {
       traceOnFailure = false;
       videoOnFailure = false;
     }
+
+    const enableWebwrightAllowed =
+      executionMode === 'generate-and-execute'
+      && featureFlags.ENABLE_WEBWRIGHT
+      && enableWebwright;
 
     // ── AI API key resolution and validation ─────────────────────────────────
     // Resolve API key: UI-submitted key takes precedence; fall back to the
@@ -270,6 +276,7 @@ export class JobsController {
       screenshotOnFailure,
       traceOnFailure,
       videoOnFailure,
+      enableWebwright: enableWebwrightAllowed,
     });
 
     jobStore.set(job);

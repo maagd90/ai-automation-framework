@@ -2,6 +2,9 @@ const defaultPlaywrightBrowsersPath = process.env.CODESPACES
   ? '/home/codespace/.cache/ms-playwright'
   : '/ms-playwright';
 
+const demoMode = process.env.DEMO_MODE === 'true';
+const rawRepairAttempts = process.env.WEBWRIGHT_MAX_REPAIR_ATTEMPTS;
+
 export const runtimeConfig = {
   // Concurrency — Phase 1 demo-safe defaults
   MAX_GLOBAL_AGENTS: Number(process.env.MAX_GLOBAL_AGENTS || 1),
@@ -30,4 +33,16 @@ export const runtimeConfig = {
 
   INSTALL_GENERATED_PROJECT_DEPS: process.env.INSTALL_GENERATED_PROJECT_DEPS === 'true',
   PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || defaultPlaywrightBrowsersPath,
+  ENABLE_WEBWRIGHT: process.env.ENABLE_WEBWRIGHT === 'true',
+  WEBWRIGHT_MODE: process.env.WEBWRIGHT_MODE || 'repair',
+  WEBWRIGHT_TIMEOUT_SECONDS: Number(process.env.WEBWRIGHT_TIMEOUT_SECONDS || 180),
+  WEBWRIGHT_MAX_REPAIR_ATTEMPTS: rawRepairAttempts !== undefined
+    ? Number(rawRepairAttempts)
+    : demoMode
+      ? 1
+      : 2,
+  WEBWRIGHT_MIN_CONFIDENCE: Number(process.env.WEBWRIGHT_MIN_CONFIDENCE || 0.75),
+  WEBWRIGHT_DOCKER_ONLY: process.env.WEBWRIGHT_DOCKER_ONLY !== 'false',
+  WEBWRIGHT_OUTPUT_DIR: process.env.WEBWRIGHT_OUTPUT_DIR || '/tmp/jobs/webwright',
+  WEBWRIGHT_ALLOWED_DOMAINS: process.env.WEBWRIGHT_ALLOWED_DOMAINS || '',
 };

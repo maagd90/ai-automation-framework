@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import type { AiConfig, AiUsageSummary, FailureAnalysis } from '@ai-agent/shared-types';
+import type { AiConfig, AiUsageSummary, FailureAnalysis, WebwrightReport } from '@ai-agent/shared-types';
 import { AiPromptService, AiProviderFactory, TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter, FeaturePartitioner } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR, PLATFORM_BASE_DIR, REPO_ROOT_DIR } from '../../config';
 import { runtimeConfig } from '../../config/runtime.config';
@@ -13,6 +13,9 @@ import { AgentPoolManager } from './AgentPoolManager';
 import { ReviewMergeService } from './ReviewMergeService';
 import { BatchReportService } from './BatchReportService';
 import { createNodeModulesLink, removeNodeModulesLink } from './FinalProjectRuntimeLinker';
+import { WebwrightRepairService } from '../webwright/WebwrightRepairService';
+import { WebwrightSuggestionValidator } from '../webwright/WebwrightSuggestionValidator';
+import { WebwrightPatchService } from '../webwright/WebwrightPatchService';
 import { logger } from '../../utils/logger';
 
 /**
@@ -34,6 +37,9 @@ export class BatchJobManager {
   private readonly reporter = new BatchReportService();
   private readonly aiPromptService = new AiPromptService();
   private readonly partitioner = new FeaturePartitioner();
+  private readonly webwrightRepairService = new WebwrightRepairService();
+  private readonly webwrightValidator = new WebwrightSuggestionValidator();
+  private readonly webwrightPatchService = new WebwrightPatchService();
 
   /**
    * Executes the full generation pipeline for the given job.
@@ -218,6 +224,7 @@ export class BatchJobManager {
       let testRunExitCode = 0;
       let testRunStdout: string | undefined;
       let failureAnalysis: FailureAnalysis | undefined;
+      let webwrightReport: WebwrightReport | undefined;
       let allureStatus = {
         configured: true,
         resultsGenerated: false,
@@ -236,13 +243,84 @@ export class BatchJobManager {
           testRunStdout = testResult.stdout;
           if (testRunExitCode !== 0) {
             failureAnalysis = await this.analyzeFailure(testResult.stderr, testResult.stdout, aiConfig, log);
+            if (job.enableWebwright && runtimeConfig.ENABLE_WEBWRIGHT) {
+              const repairable = this.webwrightRepairService.shouldRepair(testResult.stdout, testResult.stderr);
+              webwrightReport = {
+                enabled: true,
+                mode: 'repair',
+                status: repairable.allowed ? 'partial' : 'skipped',
+                repairApplied: false,
+                recommendationsUsed: 0,
+                attempts: 0,
+                failureCategory: repairable.category,
+                warnings: [],
+              };
+
+              if (repairable.allowed) {
+                const maxAttempts = Math.max(1, runtimeConfig.WEBWRIGHT_MAX_REPAIR_ATTEMPTS);
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                  webwrightReport.attempts = attempt;
+                  log(`[Webwright] Attempt ${attempt}/${maxAttempts} for ${repairable.category}`);
+
+                  const repair = await this.webwrightRepairService.repair({
+                    jobId: job.jobId,
+                    targetUrl: job.url,
+                    finalDir,
+                    failedSpecPath: this.findPrimarySpecPath(finalDir),
+                    stdout: testResult.stdout,
+                    stderr: testResult.stderr,
+                  });
+
+                  webwrightReport.failureCategory = repair.failureCategory;
+                  webwrightReport.warnings.push(...repair.warnings);
+                  webwrightReport.recommendationsUsed = repair.recommendationsUsed;
+
+                  if (!repair.enabled || repair.status === 'failed') {
+                    webwrightReport.status = 'failed';
+                    continue;
+                  }
+
+                  const validated = await this.webwrightValidator.validate(repair, job.url);
+                  webwrightReport.recommendationsUsed = validated.recommendationsUsed;
+                  webwrightReport.warnings.push(...validated.warnings);
+
+                  if (validated.approvedLocators.length === 0 && validated.approvedAssertions.length === 0) {
+                    webwrightReport.status = 'partial';
+                    continue;
+                  }
+
+                  const patchResult = this.webwrightPatchService.apply(finalDir, validated);
+                  webwrightReport.repairApplied = patchResult.patchedFiles.length > 0;
+                  if (patchResult.patchedFiles.length > 0) {
+                    log(`[Webwright] Patched ${patchResult.patchedFiles.length} file(s)`);
+                  } else {
+                    webwrightReport.warnings.push('No files were patched');
+                  }
+
+                  this.merger.validate(finalDir);
+                  const rerunResult = await this.runPlaywright(finalDir, log);
+                  testRunExitCode = rerunResult.exitCode;
+                  testRunStdout = rerunResult.stdout;
+                  if (rerunResult.exitCode === 0) {
+                    webwrightReport.status = 'passed';
+                    break;
+                  }
+
+                  webwrightReport.status = 'failed';
+                  if (attempt === maxAttempts) {
+                    break;
+                  }
+                }
+              }
+            }
           }
           log(`Playwright exit code: ${testRunExitCode}`);
         } finally {
           if (playwrightSymlinkCreated) removeNodeModulesLink(finalDir);
         }
+      }
 
-        // ── Allure report generation (non-blocking) ────────────────────────
+      if (job.executionMode === 'generate-and-execute') {
         const allureSymlinkCreated =
           !runtimeConfig.INSTALL_GENERATED_PROJECT_DEPS && createNodeModulesLink(finalDir);
         try {
@@ -266,6 +344,7 @@ export class BatchJobManager {
         testRunExitCode,
         testRunStdout,
         allure: allureStatus,
+        webwright: webwrightReport,
         aiUsage,
         failureAnalysis,
       });
@@ -657,6 +736,13 @@ export class BatchJobManager {
       .replace(/api[_-]?key["'=:\s]+[A-Za-z0-9._-]+/gi, 'apiKey=[REDACTED]')
       .replace(/[A-Za-z0-9._%+-]+:[^@\s]+@/g, '[REDACTED_CREDENTIALS]@')
       .slice(0, 4000);
+  }
+
+  private findPrimarySpecPath(finalDir: string): string {
+    const testsDir = path.join(finalDir, 'src', 'tests');
+    if (!fs.existsSync(testsDir)) return path.join(finalDir, 'src', 'tests', 'unknown.spec.ts');
+    const files = fs.readdirSync(testsDir).filter((file) => file.endsWith('.spec.ts')).sort();
+    return files.length > 0 ? path.join(testsDir, files[0]) : path.join(finalDir, 'src', 'tests', 'unknown.spec.ts');
   }
 
   private extractJsonObject(text: string): string {

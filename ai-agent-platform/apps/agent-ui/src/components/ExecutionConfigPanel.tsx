@@ -17,6 +17,9 @@ interface ExecutionConfigPanelProps {
   onTraceOnFailureChange: (v: boolean) => void;
   videoOnFailure: boolean;
   onVideoOnFailureChange: (v: boolean) => void;
+  enableWebwright: boolean;
+  onEnableWebwrightChange: (v: boolean) => void;
+  webwrightEnabled: boolean;
   recommendedAgentsForDemo?: number;
 }
 
@@ -40,6 +43,9 @@ export default function ExecutionConfigPanel({
   onTraceOnFailureChange,
   videoOnFailure,
   onVideoOnFailureChange,
+  enableWebwright,
+  onEnableWebwrightChange,
+  webwrightEnabled,
   recommendedAgentsForDemo,
 }: ExecutionConfigPanelProps) {
   return (
@@ -216,6 +222,32 @@ export default function ExecutionConfigPanel({
             <span className="text-sm text-gray-700">Video on failure</span>
           </label>
         </div>
+      </div>
+
+      {/* Webwright Repair */}
+      <div>
+        <p className="text-sm font-medium text-gray-700 mb-2">Webwright Repair</p>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enableWebwright}
+            disabled={executionMode !== 'generate-and-execute' || !webwrightEnabled}
+            onChange={(e) => onEnableWebwrightChange(e.target.checked)}
+            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
+          />
+          <span className="text-sm text-gray-700">
+            Enable Webwright Repair Mode
+            <span className="block text-xs text-gray-400">
+              Uses Webwright to debug failed executions, repair locators/assertions, and rerun tests. Slower but more accurate.
+            </span>
+          </span>
+        </label>
+        {executionMode !== 'generate-and-execute' && (
+          <p className="mt-1 text-xs text-gray-400">Available only for Generate + Execute.</p>
+        )}
+        {executionMode === 'generate-and-execute' && !webwrightEnabled && (
+          <p className="mt-1 text-xs text-gray-400">Webwright is disabled on this server.</p>
+        )}
       </div>
     </div>
   );

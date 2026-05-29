@@ -1,4 +1,5 @@
 import type { TestCase } from '@ai-agent/shared-types';
+import type { WebwrightFailureCategory } from './WebwrightFailureClassifier';
 
 export interface WebwrightTask {
   /** Human-readable instruction sent to the Webwright exploration agent. */
@@ -7,6 +8,17 @@ export interface WebwrightTask {
   targetUrl: string;
   /** Logical mode driving what the agent focuses on. */
   focusAreas: string[];
+}
+
+export interface WebwrightRepairTaskInput {
+  targetUrl: string;
+  failedSpecPath: string;
+  failureCategory: WebwrightFailureCategory;
+  summary: string;
+  stdout: string;
+  stderr: string;
+  generatedFiles: string[];
+  pageObjects: string[];
 }
 
 /**
@@ -28,6 +40,18 @@ export class WebwrightTaskBuilder {
     const focusAreas = this.extractFocusAreas(testCases);
     const instruction = this.buildInstruction(testCases, targetUrl, focusAreas);
     return { instruction, targetUrl, focusAreas };
+  }
+
+  buildRepairTask(input: WebwrightRepairTaskInput): WebwrightTask & { failureCategory: WebwrightFailureCategory; failedSpecPath: string; generatedFiles: string[] } {
+    const instruction = this.buildRepairInstruction(input);
+    return {
+      instruction,
+      targetUrl: input.targetUrl,
+      focusAreas: [input.failureCategory],
+      failureCategory: input.failureCategory,
+      failedSpecPath: input.failedSpecPath,
+      generatedFiles: input.generatedFiles,
+    };
   }
 
   private extractFocusAreas(testCases: TestCase[]): string[] {
@@ -100,6 +124,22 @@ export class WebwrightTaskBuilder {
     );
   }
 
+  private buildRepairInstruction(input: WebwrightRepairTaskInput): string {
+    const sanitizedStdout = this.sanitizeLogChunk(input.stdout);
+    const sanitizedStderr = this.sanitizeLogChunk(input.stderr);
+    const pageObjects = input.pageObjects.length > 0 ? input.pageObjects.join(', ') : 'the generated page objects';
+
+    return (
+      `The generated Playwright test at ${input.failedSpecPath} failed because the failure category was ${input.failureCategory}. ` +
+      `Explore the target website at ${input.targetUrl}, reproduce the broken flow, inspect ${pageObjects}, ` +
+      `identify stable locator and assertion repairs, validate them against the live page, and return JSON only. ` +
+      `Failure summary: ${input.summary}. ` +
+      `Relevant stdout: ${sanitizedStdout}. ` +
+      `Relevant stderr: ${sanitizedStderr}. ` +
+      `Focus on repair suggestions for the generated TypeScript framework only.`
+    );
+  }
+
   /** Returns '[REDACTED]' for values associated with credential fields (username/password). */
   private redactIfSensitive(target: string | undefined, value: string): string {
     const t = (target ?? '').toLowerCase();
@@ -116,5 +156,12 @@ export class WebwrightTaskBuilder {
       return '[REDACTED]';
     }
     return value;
+  }
+
+  private sanitizeLogChunk(value: string): string {
+    return this.redactIfSensitive(undefined, value)
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, '******')
+      .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .slice(0, 1200);
   }
 }
