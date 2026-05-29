@@ -149,9 +149,9 @@ def main() -> None:
 
     input_path = Path(args.input).resolve()
     output_dir = Path(args.output_dir).resolve()
-    safe_root = Path("/tmp/jobs/webwright").resolve()
+    safe_base_dir = Path("/tmp/jobs/webwright").resolve()
 
-    if not input_path.is_relative_to(safe_root) or not output_dir.is_relative_to(safe_root):
+    if not input_path.is_relative_to(safe_base_dir) or not output_dir.is_relative_to(safe_base_dir):
         print(json.dumps(empty_result("failed", "unknown", "Unsafe path rejected", [])))
         sys.exit(1)
 
