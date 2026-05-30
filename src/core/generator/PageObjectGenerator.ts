@@ -5,56 +5,115 @@ import { StringUtils } from '../../utils/StringUtils.js';
 import { FileUtils } from '../../utils/FileUtils.js';
 import { Logger } from '../../utils/Logger.js';
 
+export interface GeneratedPageMethod {
+  name: string;
+  action: LocatorResult['action'];
+  locatorStrategy: string;
+  locatorField: string;
+  locatorExpression: string;
+  body: string;
+}
+
+export interface GeneratedPageModel {
+  pageName: string;
+  className: string;
+  routePath: string;
+  methods: GeneratedPageMethod[];
+}
+
 export class PageObjectGenerator {
   private readonly logger = new Logger('PageObjectGenerator');
 
-  generate(pageName: string, url: string, locators: LocatorResult[], outputDir: string): string {
-    const className = StringUtils.toPascalCase(pageName) + 'Page';
-    const methods = locators.map(l => this.renderMethod(l)).join('\n\n');
-    const outPath = path.join(outputDir, 'pages', `${className}.ts`);
-
-    const content = `import { type Page, expect } from '@playwright/test';
-
-export class ${className} {
-  constructor(private readonly page: Page) {}
-
-${methods}
-
-  async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(url)});
-    await this.page.waitForLoadState('networkidle');
-  }
-}
-`;
+  generate(
+    pageName: string,
+    url: string,
+    locators: LocatorResult[],
+    outputDir: string,
+  ): { path: string; model: GeneratedPageModel } {
+    const model = this.buildModel(pageName, url, locators);
+    const outPath = path.join(outputDir, 'src', 'pages', `${model.className}.ts`);
+    const content = this.render(model);
 
     FileUtils.ensureDir(path.dirname(outPath));
     FileUtils.writeFile(outPath, content);
     this.logger.info(`Page object generated: ${outPath}`);
-    return outPath;
+    return { path: outPath, model };
   }
 
-  private renderMethod(locator: LocatorResult): string {
-    const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
-    const locatorExpr = this.renderLocatorExpression(locator.primaryLocator);
+  buildModel(pageName: string, url: string, locators: LocatorResult[]): GeneratedPageModel {
+    const className = StringUtils.toPascalCase(pageName) + 'Page';
+    const routePath = this.resolveRoutePath(url);
+    const methods = locators
+      .filter((locator) => !this.isPreconditionStep(locator.stepTarget))
+      .map((locator) => this.buildMethod(locator));
 
-    switch (locator.action) {
+    return { pageName, className, routePath, methods };
+  }
+
+  render(model: GeneratedPageModel): string {
+    const locatorFields = model.methods
+      .map((method) => `  private readonly ${method.locatorField} = ${method.locatorExpression};`)
+      .join('\n');
+    const methods = model.methods.map((method) => method.body).join('\n\n');
+    return `import { type Page } from '@playwright/test';
+import { BasePage } from './BasePage';
+
+export class ${model.className} extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
+
+${locatorFields}
+
+${methods}
+
+  async goto(): Promise<void> {
+    await this.gotoPath(${this.renderStringLiteral(model.routePath)});
+  }
+}
+`;
+  }
+
+  private buildMethod(locator: LocatorResult): GeneratedPageMethod {
+    const name = locator.methodName ?? StringUtils.toMethodName(locator.action, locator.stepTarget);
+    const locatorExpression = this.renderLocatorExpression(locator.primaryLocator);
+    const locatorField = this.resolveLocatorFieldName(name);
+    return {
+      name,
+      action: locator.action,
+      locatorStrategy: locator.primaryLocator.strategy,
+      locatorField,
+      locatorExpression,
+      body: this.renderMethod(name, locator.action, locatorField),
+    };
+  }
+
+  private renderMethod(methodName: string, action: LocatorResult['action'], locatorField: string): string {
+    switch (action) {
       case 'enter':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.fill(value);\n  }`;
+        return `  async ${methodName}(value: string): Promise<void> {\n    await this.${locatorField}.fill(value);\n  }`;
       case 'click':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.click();\n  }`;
       case 'verifyVisible':
-        return `  async ${methodName}(): Promise<void> {\n    await expect(${locatorExpr}).toBeVisible();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.waitFor({ state: 'visible' });\n  }`;
       case 'verifyText':
-        return `  async ${methodName}(expected: string): Promise<void> {\n    await expect(${locatorExpr}).toHaveText(expected);\n  }`;
+        return `  async ${methodName}(): Promise<string> {\n    return (await this.${locatorField}.innerText()).trim();\n  }`;
       case 'select':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.selectOption(value);\n  }`;
+        return `  async ${methodName}(value: string): Promise<void> {\n    await this.${locatorField}.selectOption(value);\n  }`;
       case 'check':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.check();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.check();\n  }`;
       case 'uncheck':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.uncheck();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.uncheck();\n  }`;
       default:
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
+        return `  async ${methodName}(): Promise<void> {\n    await this.${locatorField}.click();\n  }`;
     }
+  }
+
+  private resolveLocatorFieldName(methodName: string): string {
+    const stripped = methodName
+      .replace(/^(enter|click|select|check|uncheck|verify|get|set)/i, '')
+      .replace(/(Visible|Text|Value)$/i, '');
+    return `${StringUtils.toCamelCase(stripped || methodName)}Locator`;
   }
 
   private renderLocatorExpression(candidate: LocatorCandidate): string {
@@ -83,6 +142,29 @@ ${methods}
 
   private renderStringLiteral(value: string): string {
     return JSON.stringify(value);
+  }
+
+  private resolveRoutePath(url: string): string {
+    try {
+      const parsed = new URL(url);
+      const pathname = parsed.pathname?.trim() || '/';
+      return pathname.startsWith('/') ? pathname : `/${pathname}`;
+    } catch {
+      return '/';
+    }
+  }
+
+  private isPreconditionStep(stepText: string): boolean {
+    const normalized = StringUtils.normalize(stepText);
+    return (
+      normalized.startsWith('user is on')
+      || normalized.startsWith('user is on the')
+      || normalized.startsWith('navigate to')
+      || normalized.includes(' navigate to ')
+      || normalized.startsWith('open ')
+      || normalized.includes(' open ')
+      || (normalized.includes('page') && normalized.includes('is on'))
+    );
   }
 
   private parseRoleCandidate(value: string): { role: string; name?: string } | null {

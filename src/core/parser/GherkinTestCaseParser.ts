@@ -2,11 +2,16 @@ import type { TestCase } from '../domain/TestCase.js';
 import type { TestStep } from '../domain/TestStep.js';
 import type { TestCaseParser } from './TestCaseParser.js';
 import { StepIntentAnalyzer } from '../intent/StepIntentAnalyzer.js';
+import type { DetailedParseResult } from './TxtTestCaseParser.js';
 
 export class GherkinTestCaseParser implements TestCaseParser {
   private readonly intentAnalyzer = new StepIntentAnalyzer();
 
   parse(content: string): TestCase {
+    return this.parseDetailed(content).testCase;
+  }
+
+  parseDetailed(content: string): DetailedParseResult {
     const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
 
     const featureLine = lines.find(l => l.startsWith('Feature:'));
@@ -18,6 +23,7 @@ export class GherkinTestCaseParser implements TestCaseParser {
     const preconditions: string[] = [];
     const steps: TestStep[] = [];
     const expectedResults: string[] = [];
+    const lowConfidenceSteps: Array<{ index: number; text: string }> = [];
     let order = 1;
 
     for (const line of lines) {
@@ -31,16 +37,26 @@ export class GherkinTestCaseParser implements TestCaseParser {
         if (keyword === 'given') {
           preconditions.push(text);
         } else if (keyword === 'then') {
-          const { action, target, value } = this.intentAnalyzer.analyze(text);
+          const { action, target, value, confidence } = this.intentAnalyzer.analyze(text);
+          if (confidence === 'low') {
+            lowConfidenceSteps.push({ index: steps.length, text });
+          }
           steps.push({ order: order++, action, target, value });
           expectedResults.push(text);
         } else {
-          const { action, target, value } = this.intentAnalyzer.analyze(text);
+          const { action, target, value, confidence } = this.intentAnalyzer.analyze(text);
+          if (confidence === 'low') {
+            lowConfidenceSteps.push({ index: steps.length, text });
+          }
           steps.push({ order: order++, action, target, value });
         }
       }
     }
 
-    return { name, preconditions, steps, expectedResults };
+    return {
+      testCase: { name, preconditions, steps, expectedResults },
+      lowConfidenceSteps,
+      confidence: steps.length === 0 || lowConfidenceSteps.length > 0 ? 'low' : 'high',
+    };
   }
 }

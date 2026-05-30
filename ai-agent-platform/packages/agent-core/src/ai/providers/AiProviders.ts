@@ -70,7 +70,7 @@ export class GeminiProvider implements IAiProvider {
   constructor(config: AiConfig) {
     if (!config.apiKey) throw new Error('Gemini provider requires an apiKey');
     this.apiKey = config.apiKey;
-    this.model = config.model ?? 'gemini-pro';
+    this.model = config.model ?? 'gemini-1.5-flash';
   }
 
   async complete(req: AiCompletionRequest): Promise<AiCompletionResponse> {

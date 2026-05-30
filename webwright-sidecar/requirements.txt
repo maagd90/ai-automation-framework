@@ -1,0 +1,10 @@
+# Webwright sidecar runtime dependencies
+#
+# Install into an isolated virtualenv — never into the host environment.
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#   playwright install chromium
+
+playwright>=1.40.0
+httpx>=0.26.0

@@ -3,3 +3,10 @@ dist/
 generated/
 .env
 *.log
+
+# Playwright and Allure runtime report artifacts
+test-results/
+playwright-report/
+allure-results/
+allure-report/
+.last-run.json

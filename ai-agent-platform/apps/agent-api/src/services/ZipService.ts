@@ -2,9 +2,60 @@ import archiver from 'archiver';
 import fs from 'fs';
 import path from 'path';
 import type { Response } from 'express';
+import { JOBS_BASE_DIR } from '../config';
+
+const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
+
+/**
+ * Top-level names (relative to the archived directory root) that must never
+ * appear in the downloaded ZIP.  These are runtime or dependency artefacts
+ * that are either too large or meaningless outside the Docker container.
+ *
+ * Note: allure-results/ and allure-report/ are intentionally NOT excluded so
+ * that users receive the Allure output when generate-and-execute is used.
+ */
+const ZIP_EXCLUDED_TOP_LEVEL = new Set([
+  'node_modules',
+  'test-results',
+  'playwright-report',
+  '.idea',
+  '.vscode',
+  '__MACOSX',
+  'coverage',
+  'dist',
+  // Webwright sidecar — must never be included in the user ZIP
+  'webwright-sidecar',
+  'webwright',
+  // Python virtual environment and cache directories
+  '.venv',
+  'venv',
+  '__pycache__',
+]);
+
+const ZIP_EXCLUDED_FILE_NAMES = new Set(['.last-run.json', '.DS_Store']);
+
+export function shouldExcludeZipEntry(entryName: string): boolean {
+  const normalized = entryName.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length === 0) return false;
+
+  if (ZIP_EXCLUDED_TOP_LEVEL.has(segments[0])) return true;
+  if (segments.some((segment) => ZIP_EXCLUDED_TOP_LEVEL.has(segment))) return true;
+
+  const leaf = segments[segments.length - 1];
+  if (ZIP_EXCLUDED_FILE_NAMES.has(leaf)) return true;
+  if (leaf.endsWith('.iml')) return true;
+  if (leaf.endsWith('.tsbuildinfo')) return true;
+  if (leaf.endsWith('.pyc')) return true;
+  if (leaf.endsWith('.pyo')) return true;
+  if (/^raw[-_]?trajectory/i.test(leaf)) return true;
+  if (/^raw[-_]?screenshot/i.test(leaf)) return true;
+
+  return false;
+}
 
 export class ZipService {
-  streamZip(dirPath: string, jobId: string, res: Response): void {
+  streamZip(dirPath: string, jobId: string, res: Response, onSuccess?: () => void): void {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="job-${jobId}-artifacts.zip"`);
 
@@ -17,9 +68,43 @@ export class ZipService {
       console.error('Archive error:', err);
     });
 
+    // After the response stream closes (download complete), clean up and notify caller
+    res.on('finish', () => {
+      this.deleteJobDir(dirPath, jobId);
+      if (onSuccess) onSuccess();
+    });
+
     archive.pipe(res);
-    archive.directory(dirPath, false);
+    archive.directory(dirPath, false, (entry) => {
+      if (shouldExcludeZipEntry(entry.name)) return false;
+      return entry;
+    });
     void archive.finalize();
+  }
+
+  private deleteJobDir(dirPath: string, jobId: string): void {
+    // Safety: only delete paths that resolve to inside JOBS_BASE_DIR
+    const resolved = path.resolve(dirPath);
+    if (!resolved.startsWith(JOBS_BASE_DIR_RESOLVED + path.sep) && resolved !== JOBS_BASE_DIR_RESOLVED) {
+      console.error(`[ZipService] Refusing to delete path outside JOBS_DIR: ${resolved}`);
+      return;
+    }
+
+    // Walk up to the job-level directory (the UUID folder) to delete everything
+    const jobDir = path.join(JOBS_BASE_DIR_RESOLVED, jobId);
+    const jobDirResolved = path.resolve(jobDir);
+    if (!jobDirResolved.startsWith(JOBS_BASE_DIR_RESOLVED + path.sep)) {
+      console.error(`[ZipService] Refusing to delete unsafe job path: ${jobDirResolved}`);
+      return;
+    }
+
+    fs.rm(jobDirResolved, { recursive: true, force: true }, (err) => {
+      if (err) {
+        console.error(`[ZipService] Failed to cleanup job ${jobId}:`, err.message);
+      } else {
+        console.log(`[ZipService] Cleaned up job artifacts: ${jobId}`);
+      }
+    });
   }
 }
 

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Compiled output from shared-types (source-of-truth is index.ts)
+packages/shared-types/src/index.js
+packages/shared-types/src/index.d.ts

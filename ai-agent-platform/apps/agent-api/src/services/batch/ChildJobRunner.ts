@@ -3,8 +3,28 @@ import path from 'path';
 import fs from 'fs';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
+import { runtimeConfig } from '../../config/runtime.config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../JobStore';
+import { logger } from '../../utils/logger';
+
+const CHILD_JOB_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** Patterns that indicate Playwright's Linux system deps are missing or a version mismatch. */
+const MISSING_DEPS_PATTERNS = [
+  /error while loading shared libraries/i,
+  /libatk/i,
+  /libgdk/i,
+  /libglib/i,
+  /libnss/i,
+  /Executable doesn't exist/i,
+  /browserType\.launch/i,
+  /Please update docker image/i,
+];
+
+function isMissingDepsError(text: string): boolean {
+  return MISSING_DEPS_PATTERNS.some((p) => p.test(text));
+}
 
 export interface ChildRunResult {
   childId: string;
@@ -14,11 +34,35 @@ export interface ChildRunResult {
   aiUsage?: AiUsageSummary;
 }
 
+/**
+ * Runs a single child agent process for one test case split.
+ *
+ * Spawns a Node.js child process executing the agent core CLI `generate` command.
+ * Streams stdout and stderr back to the parent job log.
+ * Detects Playwright missing-dependency errors in stderr and appends a diagnostic message.
+ * Enforces a 20-minute timeout (CHILD_JOB_TIMEOUT_MS) per child run.
+ * Reads the AI usage JSON file written by the child process after completion.
+ */
 export class ChildJobRunner {
+  /**
+   * Spawns a child agent process to generate a Playwright project for one test case.
+   *
+   * The child process runs `node <AGENT_CORE_PATH> generate --file ... --url ... --output ...`.
+   * AI configuration is forwarded as environment variables so the agent core can apply them.
+   * A kill timer enforces the maximum run duration; timed-out processes resolve with exit code 124.
+   *
+   * @param job - The parent job entity (provides URL, headless setting, and log destination).
+   * @param childId - Unique identifier for this child run (used for log prefixing and directory naming).
+   * @param childFilePath - Absolute path to the split test case JSON file for this child.
+   * @param aiConfig - Optional AI configuration forwarded to the child process as env vars.
+   * @param attempt - Current attempt number (1-based), used for log context during retries.
+   * @returns Result containing exit code, duration, attempt count, and optional AI usage data.
+   */
   async run(
     job: JobEntity,
     childId: string,
     childFilePath: string,
+    featureName?: string,
     aiConfig?: AiConfig,
     attempt = 1,
   ): Promise<ChildRunResult> {
@@ -40,10 +84,32 @@ export class ChildJobRunner {
     ];
 
     return new Promise<ChildRunResult>((resolve, reject) => {
+      let timedOut = false;
+
+      // Log command and safe environment flags (never include AI_API_KEY or secrets)
+      logger.info('Child agent starting', {
+        jobId: job.jobId,
+        childId,
+        attempt,
+        script: 'agent-core/generate',
+        env: {
+          PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
+          HEADLESS: String(job.headless),
+          AI_ENABLED: String((aiConfig?.provider ?? 'none') !== 'none'),
+          AI_PROVIDER: aiConfig?.provider ?? 'none',
+          AI_MODEL: aiConfig?.model ?? '',
+          AI_USE_FOR_PARSING: String(aiConfig?.usedFor?.parsing ?? false),
+          AI_USE_FOR_NAMING: String(aiConfig?.usedFor?.naming ?? false),
+          AI_USE_FOR_FAILURE_ANALYSIS: String(aiConfig?.usedFor?.failureAnalysis ?? false),
+        },
+        startedAt: new Date().toISOString(),
+      });
+
       const child = spawn('node', args, {
         shell: false,
         env: {
           ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: runtimeConfig.PLAYWRIGHT_BROWSERS_PATH,
           HEADLESS: String(job.headless),
           AI_ENABLED: String((aiConfig?.provider ?? 'none') !== 'none'),
           AI_PROVIDER: aiConfig?.provider ?? 'none',
@@ -54,8 +120,14 @@ export class ChildJobRunner {
           AI_USE_FOR_NAMING: String(aiConfig?.usedFor?.naming ?? false),
           AI_USE_FOR_FAILURE_ANALYSIS: String(aiConfig?.usedFor?.failureAnalysis ?? false),
           AI_USAGE_OUTPUT_FILE: aiUsagePath,
+          GENERATED_FEATURE_NAME: featureName ?? '',
         },
       });
+
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, CHILD_JOB_TIMEOUT_MS);
 
       const appendLog = (line: string): void => {
         const entry = `[${new Date().toISOString()}] [${childId}] ${line}`;
@@ -69,27 +141,95 @@ export class ChildJobRunner {
       });
 
       child.stderr.on('data', (data: Buffer) => {
-        data
-          .toString()
+        const text = data.toString();
+        text
           .split('\n')
           .filter(Boolean)
           .forEach((l) => appendLog(`[STDERR] ${l}`));
+
+        if (isMissingDepsError(text)) {
+          // PLAYWRIGHT_BROWSERS_PATH is the canonical check (set via env); the others
+          // are fallbacks for containers that don't set it explicitly.
+          const isDocker = process.env.PLAYWRIGHT_BROWSERS_PATH === '/ms-playwright'
+            || process.env.IN_DOCKER === 'true'
+            || fs.existsSync('/.dockerenv');
+          let fixMsg: string;
+          if (isDocker) {
+            // Dynamically read the installed package version so the message stays
+            // accurate after future Playwright upgrades.
+            let pwVersion = 'unknown';
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const pwPkg = require('playwright/package.json') as { version: string };
+              pwVersion = pwPkg.version;
+            } catch { /* ignore */ }
+            fixMsg =
+              'Playwright package and Docker image version mismatch. ' +
+              `Align the Docker base image with the installed Playwright version ` +
+              `(mcr.microsoft.com/playwright:v${pwVersion}-jammy) and rebuild: docker compose build --no-cache.`;
+          } else {
+            fixMsg = 'Run: npx playwright install --with-deps chromium';
+          }
+          appendLog(
+            '[ERROR] Error category: PLAYWRIGHT_RUNTIME_MISSING_DEPS - ' +
+            `Chromium browser is not available or has a version mismatch. ${fixMsg}`,
+          );
+        }
       });
 
       child.on('close', (code) => {
+        clearTimeout(timeoutHandle);
+        const durationMs = Date.now() - started;
+        if (timedOut) {
+          logger.warn('Child agent timed out', {
+            jobId: job.jobId,
+            childId,
+            attempt,
+            timeoutMs: CHILD_JOB_TIMEOUT_MS,
+            durationMs,
+          });
+          resolve({
+            childId,
+            exitCode: 124,
+            durationMs,
+            attempts: attempt,
+            aiUsage: this.readAiUsage(aiUsagePath),
+          });
+          return;
+        }
+
+        const exitCode = code ?? 1;
+        if (exitCode === 0) {
+          logger.info('Child agent completed', { jobId: job.jobId, childId, attempt, exitCode, durationMs });
+        } else {
+          logger.warn('Child agent exited with non-zero code', { jobId: job.jobId, childId, attempt, exitCode, durationMs });
+        }
+
         resolve({
           childId,
-          exitCode: code ?? 1,
-          durationMs: Date.now() - started,
+          exitCode,
+          durationMs,
           attempts: attempt,
           aiUsage: this.readAiUsage(aiUsagePath),
         });
       });
 
-      child.on('error', reject);
+      child.on('error', (err) => {
+        clearTimeout(timeoutHandle);
+        reject(err);
+      });
     });
   }
 
+  /**
+   * Reads the AI usage JSON file written by the child agent process after generation.
+   *
+   * The file is written to `<childDir>/ai-usage.json` by the agent core's GenerateCommand
+   * when AI features are enabled. Returns undefined if the file does not exist or cannot be parsed.
+   *
+   * @param aiUsagePath - Absolute path to the AI usage output file.
+   * @returns Parsed AI usage summary, or undefined if unavailable.
+   */
   private readAiUsage(aiUsagePath: string): AiUsageSummary | undefined {
     if (!fs.existsSync(aiUsagePath)) {
       return undefined;

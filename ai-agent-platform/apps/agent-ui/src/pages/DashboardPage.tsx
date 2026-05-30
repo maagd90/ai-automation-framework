@@ -1,29 +1,60 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { PlayIcon, AlertCircleIcon } from 'lucide-react';
+import { PlayIcon, AlertCircleIcon, DownloadIcon } from 'lucide-react';
+import axios from 'axios';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
-import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
+import { fetchServerConfig, DEFAULT_SERVER_CONFIG } from '../api/config';
+import type { ServerConfig } from '../api/config';
+import type { AiProvider, ExecutionMode, AllocationMode } from '@ai-agent/shared-types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+
+  // Server feature flags — fetched once on mount
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(DEFAULT_SERVER_CONFIG);
+  useEffect(() => {
+    fetchServerConfig()
+      .then(setServerConfig)
+      .catch(() => {
+        console.warn('[DashboardPage] Failed to fetch server config — using safe defaults.');
+      });
+  }, []);
 
   // Test input
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState('');
 
+  // Dynamic test case limit — defaults to server limit; updated once config loads
+  const [maxTestCasesForJob, setMaxTestCasesForJob] = useState<number>(
+    DEFAULT_SERVER_CONFIG.limits.maxTestCasesPerJob,
+  );
+
+  // Update default when server config arrives
+  useEffect(() => {
+    setMaxTestCasesForJob(serverConfig.limits.maxTestCasesPerJob);
+  }, [serverConfig.limits.maxTestCasesPerJob]);
+
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
+  const [allocationMode, setAllocationMode] = useState<AllocationMode>('auto');
   const [headless, setHeadless] = useState(true);
   const [parallelAgents, setParallelAgents] = useState(2);
   const [retryCount, setRetryCount] = useState(0);
   const [screenshotOnFailure, setScreenshotOnFailure] = useState(true);
   const [traceOnFailure, setTraceOnFailure] = useState(false);
   const [videoOnFailure, setVideoOnFailure] = useState(false);
+  const [enableWebwright, setEnableWebwright] = useState(false);
+
+  useEffect(() => {
+    if (executionMode === 'generate-only') {
+      setEnableWebwright(false);
+    }
+  }, [executionMode]);
 
   // AI config
   const [provider, setProvider] = useState<AiProvider>('none');
@@ -40,6 +71,35 @@ export default function DashboardPage() {
     mutationFn: createJob,
     onSuccess: (res) => {
       navigate(`/jobs/${res.jobId}`);
+    },
+    onError: (error) => {
+      if (axios.isAxiosError(error)) {
+        const response = error.response?.data as { error?: string } | undefined;
+        if (response?.error) {
+          setValidationError(response.error);
+          return;
+        }
+
+        if (!error.response) {
+          setValidationError(
+            "Cannot reach Agent API. Run the 'Start Agent API' task and retry.",
+          );
+          return;
+        }
+
+        if (error.response.status >= 500) {
+          setValidationError(
+            `Agent API error (${error.response.status}). Check API terminal logs and retry.`,
+          );
+          return;
+        }
+
+        setValidationError(
+          `Request failed (${error.response.status}). Verify API is running and reachable.`,
+        );
+        return;
+      }
+      setValidationError('Failed to create job. Please try again.');
     },
   });
 
@@ -65,13 +125,16 @@ export default function DashboardPage() {
     mutation.mutate({
       file,
       url,
+      framework: 'playwright-ts',
       executionMode,
+      allocationMode,
       headless,
       parallelAgents,
       retryCount,
       screenshotOnFailure,
       traceOnFailure,
       videoOnFailure,
+      enableWebwright,
       provider,
       apiKey: apiKey || undefined,
       model: model || undefined,
@@ -79,6 +142,7 @@ export default function DashboardPage() {
       usedForParsing,
       usedForNaming,
       usedForFailureAnalysis,
+      maxTestCasesForJob,
     });
   };
 
@@ -102,9 +166,73 @@ export default function DashboardPage() {
               Test Case File <span className="text-red-500">*</span>
             </label>
             <FileUpload onFileSelect={setFile} />
+            {/* Download sample files */}
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-xs font-medium text-gray-600 mb-2 flex items-center gap-1">
+                <DownloadIcon className="w-3 h-3" />
+                Download sample files to get started:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/templates/sample-testcases.json"
+                  download="sample-testcases.json"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  JSON Sample
+                </a>
+                <a
+                  href="/templates/sample-testcases.txt"
+                  download="sample-testcases.txt"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  TXT Sample
+                </a>
+                <a
+                  href="/templates/sample-testcases.feature"
+                  download="sample-testcases.feature"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:border-brand-400 hover:text-brand-600 transition-colors"
+                >
+                  <DownloadIcon className="w-3 h-3" />
+                  Feature Sample
+                </a>
+                <span
+                  title="Excel upload is planned for Phase 2"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+                >
+                  Excel — Coming Soon
+                </span>
+              </div>
+            </div>
           </div>
 
           <UrlInput value={url} onChange={setUrl} />
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Max test cases to process from file
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={serverConfig.limits.maxTestCasesHardLimit}
+              value={maxTestCasesForJob}
+              onChange={(e) => {
+                const v = Math.max(
+                  1,
+                  Math.min(serverConfig.limits.maxTestCasesHardLimit, Number(e.target.value)),
+                );
+                setMaxTestCasesForJob(v);
+              }}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              Process up to {maxTestCasesForJob} test case(s) from this file. Files with fewer test
+              cases are accepted. Default: {serverConfig.limits.maxTestCasesPerJob} &nbsp;·&nbsp; Hard
+              limit: {serverConfig.limits.maxTestCasesHardLimit}.
+            </p>
+          </div>
         </section>
 
         {/* ── Execution Config ─────────────────────────────────────────────── */}
@@ -113,6 +241,8 @@ export default function DashboardPage() {
           <ExecutionConfigPanel
             executionMode={executionMode}
             onExecutionModeChange={setExecutionMode}
+            allocationMode={allocationMode}
+            onAllocationModeChange={setAllocationMode}
             headless={headless}
             onHeadlessChange={setHeadless}
             parallelAgents={parallelAgents}
@@ -125,6 +255,10 @@ export default function DashboardPage() {
             onTraceOnFailureChange={setTraceOnFailure}
             videoOnFailure={videoOnFailure}
             onVideoOnFailureChange={setVideoOnFailure}
+            enableWebwright={enableWebwright}
+            onEnableWebwrightChange={setEnableWebwright}
+            webwrightEnabled={serverConfig.features.webwright}
+            recommendedAgentsForDemo={serverConfig.runtime.recommendedAgentsForDemo}
           />
         </section>
 
@@ -146,13 +280,14 @@ export default function DashboardPage() {
             onUsedForNamingChange={setUsedForNaming}
             usedForFailureAnalysis={usedForFailureAnalysis}
             onUsedForFailureAnalysisChange={setUsedForFailureAnalysis}
+            features={serverConfig.features}
           />
         </section>
 
-        {(validationError || mutation.isError) && (
+        {validationError && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{validationError || 'Failed to create job. Please try again.'}</span>
+            <span>{validationError}</span>
           </div>
         )}
 

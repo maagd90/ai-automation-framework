@@ -2,6 +2,9 @@ import type { ActionType } from '../domain/TestStep.js';
 import type { ElementNode } from '../domain/ElementNode.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 
+const VALUE_EXACT_MATCH_WEIGHT = 26;
+const VALUE_PARTIAL_MATCH_WEIGHT = 16;
+
 export interface TargetMatchResult {
   element: ElementNode;
   confidence: number;
@@ -40,6 +43,7 @@ export class TargetMatcher {
     confidence += this.scoreField(target, element.id, 18, 10, 'id', diagnostics);
     confidence += this.scoreField(target, element.ariaLabel, 24, 14, 'aria-label', diagnostics);
     confidence += this.scoreField(target, element.accessibleName, 30, 18, 'accessible name', diagnostics);
+    confidence += this.scoreField(target, element.value, VALUE_EXACT_MATCH_WEIGHT, VALUE_PARTIAL_MATCH_WEIGHT, 'value', diagnostics);
     confidence += this.scoreField(target, element.text, 22, 12, 'visible text', diagnostics);
     confidence += this.scoreField(target, element.parentContext, 8, 4, 'parent context', diagnostics);
     confidence += this.scoreField(target, element.siblingContext, 8, 4, 'sibling context', diagnostics);
@@ -138,7 +142,11 @@ export class TargetMatcher {
       case 'uncheck':
         return ['checkbox', 'radio', 'switch'].includes(role) || ['checkbox', 'radio'].includes(type);
       case 'click':
-        return ['button', 'link'].includes(role) || ['button', 'a'].includes(element.tagName);
+        return (
+          ['button', 'link'].includes(role)
+          || ['button', 'a'].includes(element.tagName)
+          || ['submit', 'button', 'reset'].includes(type)
+        );
       case 'verifyText':
       case 'verifyVisible':
       case 'navigate':

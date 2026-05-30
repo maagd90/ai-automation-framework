@@ -10,6 +10,9 @@ export interface TestStep {
 export interface TestCase {
   id: string;
   name: string;
+  feature?: string;
+  module?: string;
+  category?: string;
   description?: string;
   preconditions?: string[];
   steps: TestStep[];
@@ -25,9 +28,12 @@ export interface TestCaseBatch {
 
 export type ExecutionMode = 'generate-only' | 'generate-and-execute';
 
+export type AllocationMode = 'auto' | 'manual';
+
 export interface ExecutionConfig {
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
@@ -60,18 +66,77 @@ export interface AiUsageSummary {
   failureAnalysisCalls: number;
 }
 
+export interface FailureAnalysis {
+  category: string;
+  summary: string;
+  suggestedFix: string;
+  warning?: string;
+}
+
 // ── Batch execution report ─────────────────────────────────────────────────
 
 export type BatchStatus = 'passed' | 'failed' | 'partial';
 
-export interface BatchReport {
-  status: BatchStatus;
-  totalCases: number;
+export interface GenerationReport {
+  total: number;
   passed: number;
   failed: number;
+}
+
+export interface ExecutionReport {
+  enabled: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  exitCode: number;
+}
+
+export interface AllureReportStatus {
+  configured: boolean;
+  resultsGenerated: boolean;
+  reportGenerated: boolean;
+}
+
+export type WebwrightMode = 'disabled' | 'deep-review' | 'repair' | 'exploration';
+
+export type WebwrightStatus = 'passed' | 'failed' | 'partial' | 'skipped';
+
+export interface WebwrightReport {
+  enabled: boolean;
+  mode: WebwrightMode;
+  status: WebwrightStatus;
+  repairApplied: boolean;
+  recommendationsUsed: number;
+  attempts: number;
+  failureCategory: 'locator' | 'assertion' | 'navigation' | 'page-state' | 'unknown';
+  warnings: string[];
+}
+
+export interface BatchReport {
+  status: BatchStatus;
+  /** Execution mode used for this job (for UI display). */
+  executionMode?: ExecutionMode;
+  generation: GenerationReport;
+  execution: ExecutionReport;
+  allure: AllureReportStatus;
+  webwright?: WebwrightReport;
+  /** Backward compatibility fields. */
+  totalCases: number;
+  /** Number of test cases successfully generated (= totalCases when all agents succeeded). */
+  passed: number;
+  /** Number of test cases that failed generation. */
+  failed: number;
+  /**
+   * Fields populated only in `generate-and-execute` mode after running Playwright.
+   * Represent the actual Playwright test execution results.
+   */
+  testsTotal?: number;
+  testsPassed?: number;
+  testsFailed?: number;
   durationMs: number;
   parallelAgents: number;
   aiUsage?: AiUsageSummary;
+  failureAnalysis?: FailureAnalysis;
   summary: string;
 }
 
@@ -88,12 +153,14 @@ export interface Job {
   url: string;
   framework: string;
   executionMode: ExecutionMode;
+  allocationMode: AllocationMode;
   headless: boolean;
   parallelAgents: number;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
   videoOnFailure: boolean;
+  enableWebwright?: boolean;
   totalCases?: number;
   processedCases?: number;
   logs: string[];

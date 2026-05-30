@@ -10,12 +10,13 @@
     "lint": "eslint src --ext .ts",
     "format": "prettier --write .",
     "agent": "node --experimental-specifier-resolution=node dist/cli/index.js",
-    "demo": "node scripts/demo-server.mjs"
+    "demo": "node scripts/demo-server.mjs",
+    "stress:multiuser": "node scripts/stress-multiuser.mjs"
   },
   "dependencies": {
-    "@playwright/test": "^1.41.0",
+    "@playwright/test": "1.59.1",
     "commander": "^11.1.0",
-    "playwright": "^1.41.0",
+    "playwright": "1.59.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {

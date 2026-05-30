@@ -1,0 +1,218 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Shared Packages",
+      "type": "shell",
+      "command": "npm run build:types && npm run build:core",
+      "options": {
+        "cwd": "${workspaceFolder}/ai-agent-platform"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "group": "startup"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Start Agent API",
+      "type": "shell",
+      "command": "npm run dev:api",
+      "options": {
+        "cwd": "${workspaceFolder}/ai-agent-platform"
+      },
+      "isBackground": true,
+      "dependsOn": "Build Shared Packages",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "servers"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Agent UI",
+      "type": "shell",
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 npm run dev:ui",
+      "options": {
+        "cwd": "${workspaceFolder}/ai-agent-platform"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "servers"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Agent UI (Memory Safe)",
+      "type": "shell",
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 npm run dev -w apps/agent-ui -- --host 0.0.0.0 --port 5173 --strictPort",
+      "options": {
+        "cwd": "${workspaceFolder}/ai-agent-platform"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "servers"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Demo Server",
+      "type": "shell",
+      "command": "PORT=4000 node scripts/demo-server.mjs",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "servers"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Unit Tests",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "tests"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Root CLI",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "build"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Stop All Services",
+      "type": "shell",
+      "command": "for p in 3000 3001 4000 5173; do lsof -tiTCP:$p -sTCP:LISTEN 2>/dev/null; done | xargs -r kill 2>/dev/null; pkill -f \"ts-node-dev\" 2>/dev/null; pkill -f \"vite\" 2>/dev/null; pkill -f \"demo-server\" 2>/dev/null; echo \"All stopped\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "servers"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Multi-User Stress Test",
+      "type": "shell",
+      "command": "MAX_GLOBAL_AGENTS=3 STRESS_JOBS=3 STRESS_PARALLEL_AGENTS=3 npm run stress:multiuser",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "tests"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Phase 1 Stress Pipeline",
+      "dependsOn": [
+        "Stop All Services",
+        "Build Root CLI",
+        "Start Agent API",
+        "Start Agent UI (Memory Safe)",
+        "Run Multi-User Stress Test"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "tests"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Playwright Browsers",
+      "type": "shell",
+      "command": "PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/home/codespace/.cache/ms-playwright} npx playwright install --with-deps chromium",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "setup"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Playwright Linux Deps Only",
+      "type": "shell",
+      "command": "sudo npx playwright install-deps chromium",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "setup"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Playwright Chromium Only",
+      "type": "shell",
+      "command": "PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/home/codespace/.cache/ms-playwright} npx playwright install chromium",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "setup"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start All Projects",
+      "dependsOn": [
+        "Install Playwright Browsers",
+        "Start Agent API",
+        "Start Agent UI (Memory Safe)",
+        "Start Demo Server",
+        "Run Unit Tests"
+      ],
+      "dependsOrder": "parallel",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

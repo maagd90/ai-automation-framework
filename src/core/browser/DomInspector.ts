@@ -77,15 +77,16 @@ export class DomInspector {
         return text || undefined;
       };
 
-      const getAccessibleName = (el: HTMLElement, associatedLabel?: string): string | undefined => {
-        const ariaLabel = el.getAttribute('aria-label')?.trim();
-        const labelledByText = getAriaLabelledByText(el);
-        const title = el.getAttribute('title')?.trim();
-        const placeholder = (el as HTMLInputElement).placeholder?.trim();
-        const text = getText(el);
+        const getAccessibleName = (el: HTMLElement, associatedLabel?: string): string | undefined => {
+          const ariaLabel = el.getAttribute('aria-label')?.trim();
+          const labelledByText = getAriaLabelledByText(el);
+          const title = el.getAttribute('title')?.trim();
+          const placeholder = (el as HTMLInputElement).placeholder?.trim();
+          const value = (el as HTMLInputElement).value?.trim();
+          const text = getText(el);
 
-        return ariaLabel || labelledByText || associatedLabel || title || placeholder || text || undefined;
-      };
+          return ariaLabel || labelledByText || associatedLabel || title || placeholder || value || text || undefined;
+        };
 
       const getSiblingContext = (el: HTMLElement): string | undefined => {
         const siblingTexts = [el.previousElementSibling, el.nextElementSibling]
@@ -112,6 +113,7 @@ export class DomInspector {
         return {
           tagName: htmlEl.tagName.toLowerCase(),
           text: getText(htmlEl),
+          value: inputEl.value || undefined,
           id: htmlEl.id || undefined,
           name: inputEl.name || undefined,
           type: inputEl.type || undefined,

@@ -23,44 +23,79 @@ export class LocatorService {
     const results: LocatorResult[] = [];
 
     for (const step of steps) {
-      const matched = this.matcher.match(step.target, elements, step.action);
-      if (!matched) {
-        this.logger.warn(`No element matched for target: ${step.target}`);
-        continue;
-      }
-
-      this.logger.info(`Matched target "${step.target}"`, {
-        confidence: matched.confidence,
-        diagnostics: matched.diagnostics.join(', '),
-      });
-
-      const rawCandidates = this.builder.build(matched.element);
-      const ranked = this.ranker.rank(rawCandidates);
-      const validated = await Promise.all(ranked.map(c => this.validator.validate(page, c)));
-      const unique = validated.filter(c => c.unique);
-      const primary = unique[0] ?? validated[0];
-      const fallbacks = (unique.length > 0 ? unique.slice(1) : validated.slice(1)).slice(0, 3);
-
-      if (!primary) continue;
-
-      results.push({
-        stepTarget: step.target,
-        action: step.action,
-        element: {
-          tagName: matched.element.tagName,
-          name: matched.element.name,
-          placeholder: matched.element.placeholder,
-          associatedLabel: matched.element.associatedLabel,
-          accessibleName: matched.element.accessibleName,
-          id: matched.element.id,
-          dataTestId: matched.element.dataTestId,
-        },
-        primaryLocator: primary,
-        fallbackLocators: fallbacks,
-      });
+      const resolved = await this.resolveLocatorForStep(page, step, elements);
+      if (resolved) results.push(resolved);
     }
 
     return results;
+  }
+
+  async resolveLocatorForStep(
+    page: Page,
+    step: TestStep,
+    elements: ElementNode[],
+  ): Promise<LocatorResult | null> {
+    const matched = this.matcher.match(step.target, elements, step.action);
+    if (!matched) {
+      this.logger.warn(`No element matched for target: ${step.target}`);
+      return null;
+    }
+
+    this.logger.info(`Matched target "${step.target}"`, {
+      confidence: matched.confidence,
+      diagnostics: matched.diagnostics.join(', '),
+    });
+
+    const rawCandidates = this.builder.build(matched.element);
+    const ranked = this.ranker.rank(rawCandidates);
+    const validated = await Promise.all(ranked.map(c => this.validator.validate(page, c)));
+    const unique = validated.filter(c => c.unique);
+    const primary = unique[0] ?? validated[0];
+    const fallbacks = (unique.length > 0 ? unique.slice(1) : validated.slice(1)).slice(0, 3);
+
+    if (!primary) return null;
+
+    return {
+      stepOrder: step.order,
+      stepTarget: step.target,
+      action: step.action,
+      element: {
+        tagName: matched.element.tagName,
+        name: matched.element.name,
+        placeholder: matched.element.placeholder,
+        associatedLabel: matched.element.associatedLabel,
+        accessibleName: matched.element.accessibleName,
+        id: matched.element.id,
+        dataTestId: matched.element.dataTestId,
+      },
+      primaryLocator: primary,
+      fallbackLocators: fallbacks,
+    };
+  }
+
+  resolvePlaywrightLocator(page: Page, candidate: LocatorResult['primaryLocator']) {
+    switch (candidate.strategy) {
+      case 'getByTestId': return page.getByTestId(candidate.value);
+      case 'getByText': return page.getByText(candidate.value, { exact: true });
+      case 'getByPlaceholder': return page.getByPlaceholder(candidate.value);
+      case 'getByLabel': return page.getByLabel(candidate.value);
+      case 'getByRole': {
+        try {
+          const parsed = JSON.parse(candidate.value) as { role: string; name?: string };
+          if (parsed?.role) {
+            return page.getByRole(
+              parsed.role as Parameters<Page['getByRole']>[0],
+              parsed.name ? { name: parsed.name } : undefined,
+            );
+          }
+        } catch {
+          // fall through to literal role string
+        }
+        return page.getByRole(candidate.value as Parameters<Page['getByRole']>[0]);
+      }
+      default:
+        return page.locator(candidate.value);
+    }
   }
 
   async scanPageLocators(page: Page, elements: ElementNode[]): Promise<LocatorResult[]> {
@@ -74,6 +109,7 @@ export class LocatorService {
       const primary = unique[0] ?? validated[0];
       if (!primary) continue;
       results.push({
+        stepOrder: results.length + 1,
         stepTarget: el.text || el.dataTestId || el.id || el.tagName,
         action: 'click',
         element: {

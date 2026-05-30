@@ -1,0 +1,117 @@
+{
+  "batchName": "SauceDemo 10 Test Cases",
+  "baseUrl": "https://www.saucedemo.com",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "title": "Login with valid credentials",
+      "steps": [
+        "Navigate to https://www.saucedemo.com",
+        "Enter 'standard_user' in the username field",
+        "Enter 'secret_sauce' in the password field",
+        "Click the Login button",
+        "Verify the inventory page is displayed"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "title": "Login with invalid password",
+      "steps": [
+        "Navigate to https://www.saucedemo.com",
+        "Enter 'standard_user' in the username field",
+        "Enter 'wrong_password' in the password field",
+        "Click the Login button",
+        "Verify error message is shown"
+      ]
+    },
+    {
+      "id": "TC-003",
+      "title": "Add item to cart",
+      "steps": [
+        "Login as standard_user",
+        "Click 'Add to cart' on the first product",
+        "Verify the cart badge shows '1'",
+        "Click the shopping cart icon",
+        "Verify the item is in the cart"
+      ]
+    },
+    {
+      "id": "TC-004",
+      "title": "Remove item from cart",
+      "steps": [
+        "Login as standard_user",
+        "Add an item to the cart",
+        "Navigate to the cart page",
+        "Click the Remove button",
+        "Verify the cart is empty"
+      ]
+    },
+    {
+      "id": "TC-005",
+      "title": "Sort products by price low to high",
+      "steps": [
+        "Login as standard_user",
+        "Open the product sort dropdown",
+        "Select 'Price (low to high)'",
+        "Verify products are sorted by ascending price"
+      ]
+    },
+    {
+      "id": "TC-006",
+      "title": "Complete checkout flow",
+      "steps": [
+        "Login as standard_user",
+        "Add a product to the cart",
+        "Click the cart icon",
+        "Click Checkout",
+        "Enter first name, last name, and zip code",
+        "Click Continue",
+        "Click Finish",
+        "Verify the order confirmation page is displayed"
+      ]
+    },
+    {
+      "id": "TC-007",
+      "title": "Logout",
+      "steps": [
+        "Login as standard_user",
+        "Open the hamburger menu",
+        "Click Logout",
+        "Verify the login page is displayed"
+      ]
+    },
+    {
+      "id": "TC-008",
+      "title": "View product detail",
+      "steps": [
+        "Login as standard_user",
+        "Click on a product name",
+        "Verify the product detail page is displayed",
+        "Verify product title, description, and price are visible"
+      ]
+    },
+    {
+      "id": "TC-009",
+      "title": "Login with locked out user",
+      "steps": [
+        "Navigate to https://www.saucedemo.com",
+        "Enter 'locked_out_user' in the username field",
+        "Enter 'secret_sauce' in the password field",
+        "Click the Login button",
+        "Verify 'Sorry, this user has been locked out' error is shown"
+      ]
+    },
+    {
+      "id": "TC-010",
+      "title": "Add multiple items and verify cart count",
+      "steps": [
+        "Login as standard_user",
+        "Add the first product to the cart",
+        "Add the second product to the cart",
+        "Verify the cart badge shows '2'",
+        "Navigate to the cart page",
+        "Verify both items are listed"
+      ]
+    }
+  ]
+}

@@ -1,10 +1,14 @@
 import { z } from 'zod';
+import { runtimeConfig } from '../config/runtime.config';
 
 export const ExecutionConfigSchema = z.object({
-  framework: z.string().min(1),
+  framework: z.string().min(1).default('playwright-ts'),
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),
+  allocationMode: z
+    .enum(['auto', 'manual'])
+    .default('auto'),
   headless: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
@@ -31,13 +35,17 @@ export const ExecutionConfigSchema = z.object({
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
     .default(false),
+  enableWebwright: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(false),
 });
 
 export const AiConfigSchema = z.object({
   provider: z.enum(['openai', 'gemini', 'azure', 'local', 'none']).default('none'),
   apiKey: z.string().optional(),
   model: z.string().optional(),
-  baseUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
+  baseUrl: z.string().trim().url().optional().or(z.literal('')).transform((v) => v || undefined),
   usedForParsing: z
     .union([z.boolean(), z.string()])
     .transform((v) => (typeof v === 'string' ? v === 'true' : v))
@@ -54,7 +62,12 @@ export const AiConfigSchema = z.object({
 
 export const CreateJobSchema = z
   .object({
-    url: z.string().url(),
+    url: z.string().trim().url(),
+    maxTestCasesForJob: z
+      .union([z.number(), z.string()])
+      .transform((v) => Number(v))
+      .pipe(z.number().int().min(1).max(runtimeConfig.MAX_TEST_CASES_HARD_LIMIT))
+      .optional(),
   })
   .merge(ExecutionConfigSchema)
   .merge(AiConfigSchema);

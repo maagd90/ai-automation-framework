@@ -8,6 +8,7 @@ export interface BoundingBox {
 export interface ElementNode {
   tagName: string;
   text: string;
+  value?: string;
   id?: string;
   name?: string;
   type?: string;
