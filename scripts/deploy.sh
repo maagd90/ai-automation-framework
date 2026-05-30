@@ -222,10 +222,21 @@ else
 fi
 
 if [ "${WEBWRIGHT_MODE_ENABLED}" = true ]; then
-  info "Checking Webwright sidecar..."
-  docker compose ps webwright
-  if docker compose ps webwright | grep -qi "unhealthy"; then
-    warning "Webwright sidecar is unhealthy."
+  info "Waiting for Webwright sidecar health..."
+  WEBWRIGHT_HEALTHY=false
+  for i in {1..30}; do
+    if docker compose exec -T webwright python -c "import urllib.request; exit(0 if urllib.request.urlopen('http://localhost:3002/health', timeout=2).status == 200 else 1)"; then
+      WEBWRIGHT_HEALTHY=true
+      success "Webwright sidecar is healthy"
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "${WEBWRIGHT_HEALTHY}" != true ]; then
+    warning "Webwright sidecar did not become healthy within 60 seconds."
+    docker compose logs webwright --tail=100
+    exit 1
   fi
 fi
 

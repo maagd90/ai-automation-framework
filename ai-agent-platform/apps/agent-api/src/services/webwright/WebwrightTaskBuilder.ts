@@ -1,5 +1,9 @@
 import type { TestCase } from '@ai-agent/shared-types';
 import type { WebwrightFailureCategory } from './WebwrightFailureClassifier';
+import type { WebwrightFailureContext } from './WebwrightFailureContextExtractor';
+import type { WebwrightGeneratedDataSnapshot } from './WebwrightGeneratedDataExtractor';
+import type { WebwrightPageObjectMetadata } from './WebwrightPageObjectMapper';
+import type { WebwrightReplayPlan } from './WebwrightStepReplayPlanBuilder';
 
 export interface WebwrightTask {
   /** Human-readable instruction sent to the Webwright exploration agent. */
@@ -8,6 +12,10 @@ export interface WebwrightTask {
   targetUrl: string;
   /** Logical mode driving what the agent focuses on. */
   focusAreas: string[];
+  generatedData?: WebwrightGeneratedDataSnapshot;
+  replayPlan?: WebwrightReplayPlan;
+  failureContext?: WebwrightFailureContext;
+  pageObjects?: WebwrightPageObjectMetadata[];
 }
 
 export interface WebwrightRepairTaskInput {
@@ -19,6 +27,10 @@ export interface WebwrightRepairTaskInput {
   stderr: string;
   generatedFiles: string[];
   pageObjects: string[];
+  generatedData?: WebwrightGeneratedDataSnapshot;
+  replayPlan?: WebwrightReplayPlan;
+  failureContext?: WebwrightFailureContext;
+  pageObjectsMetadata?: WebwrightPageObjectMetadata[];
 }
 
 /**
@@ -51,6 +63,10 @@ export class WebwrightTaskBuilder {
       failureCategory: input.failureCategory,
       failedSpecPath: input.failedSpecPath,
       generatedFiles: input.generatedFiles,
+      generatedData: input.generatedData,
+      replayPlan: input.replayPlan,
+      failureContext: input.failureContext,
+      pageObjects: input.pageObjectsMetadata,
     };
   }
 
@@ -128,14 +144,31 @@ export class WebwrightTaskBuilder {
     const sanitizedStdout = this.sanitizeLogChunk(input.stdout);
     const sanitizedStderr = this.sanitizeLogChunk(input.stderr);
     const pageObjects = input.pageObjects.length > 0 ? input.pageObjects.join(', ') : 'the generated page objects';
+    const replayPlanSummary = input.replayPlan?.steps?.length
+      ? `${input.replayPlan.steps.length} deterministic replay step(s)`
+      : 'no deterministic replay plan was provided';
+    const failureContext = input.failureContext
+      ? [
+        input.failureContext.failedTestTitle,
+        input.failureContext.failedPageObject,
+        input.failureContext.failedMethod,
+        input.failureContext.failedSelector,
+      ].filter(Boolean).join(' | ')
+      : 'no failure context was extracted';
+    const dataSummary = input.generatedData
+      ? `validUser username=${input.generatedData.credentials.validUser.username ? '[REDACTED]' : 'missing'}, inputs=${Object.keys(input.generatedData.inputs).length}`
+      : 'no generated test data was extracted';
 
     return (
       `The generated Playwright test at ${input.failedSpecPath} failed because the failure category was ${input.failureCategory}. ` +
-      `Explore the target website at ${input.targetUrl}, reproduce the broken flow, inspect ${pageObjects}, ` +
+      `Explore the target website at ${input.targetUrl}, reproduce the broken flow using only the approved replay plan, inspect ${pageObjects}, ` +
       `identify stable locator and assertion repairs, validate them against the live page, and return JSON only. ` +
       `Failure summary: ${input.summary}. ` +
       `Relevant stdout: ${sanitizedStdout}. ` +
       `Relevant stderr: ${sanitizedStderr}. ` +
+      `Failure context: ${failureContext}. ` +
+      `Replay plan: ${replayPlanSummary}. ` +
+      `Generated data: ${dataSummary}. ` +
       `Focus on repair suggestions for the generated TypeScript framework only.`
     );
   }

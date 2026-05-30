@@ -16,6 +16,14 @@ describe('Webwright deployment', () => {
     expect(output).toContain('--clean --webwright');
   });
 
+  it('deploy.sh waits for Webwright health and prints logs on timeout', () => {
+    const script = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'deploy.sh'), 'utf8');
+    expect(script).toContain('Webwright sidecar is healthy');
+    expect(script).toContain('Webwright sidecar did not become healthy within 60 seconds');
+    expect(script).toContain('docker compose logs webwright --tail=100');
+    expect(script).toContain("urllib.request.urlopen('http://localhost:3002/health'");
+  });
+
   it('docker-compose exposes the optional webwright profile and API env vars', () => {
     const compose = fs.readFileSync(path.join(REPO_ROOT, 'docker-compose.yml'), 'utf8');
     expect(compose).toContain('profiles:');

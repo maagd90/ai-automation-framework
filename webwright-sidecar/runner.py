@@ -264,103 +264,161 @@ def get_entry_locator(page, entry: dict):
     return None
 
 
-def try_login(page, entries: list[dict], warnings: list[str]) -> bool:
-    password = None
-    username = None
-    for entry in entries:
-        tag = entry.get('tag', '')
-        if tag != 'input':
-            continue
-        input_type = (entry.get('type') or '').lower()
-        if input_type == 'password' and password is None:
-            password = entry
-        elif input_type in {'text', 'email', ''} and username is None:
-            username = entry
+def is_domain_allowed(hostname: str, allowed_domains: list[str]) -> bool:
+    hostname = (hostname or '').strip().lower().rstrip('.')
+    if not hostname:
+       return False
+    if not allowed_domains:
+       return True
 
-    if password is None:
-        return False
-
-    try:
-        if username is not None:
-            locator = get_entry_locator(page, username)
-            if locator is not None:
-                locator.fill('webwright-user')
-        password_locator = get_entry_locator(page, password)
-        if password_locator is None:
-            password_locator = page.locator('input[type="password"]').first
-        password_locator.fill('webwright-pass')
-    except Exception as exc:
-        warnings.append(f'Unable to fill login form: {exc}')
-        return False
-
-    try:
-        submit = page.locator('button[type="submit"], input[type="submit"], form button').first
-        if submit.count() > 0:
-            submit.click()
-            return True
-    except Exception as exc:
-        warnings.append(f'Unable to submit login form: {exc}')
-        return False
-
+    for allowed in allowed_domains:
+       allowed = compact(allowed).lower().rstrip('.')
+       if not allowed:
+           continue
+       if allowed.startswith('*.'):
+           base = allowed[2:]
+           if hostname == base:
+               continue
+           if hostname.endswith(f'.{base}'):
+               return True
+       elif hostname == allowed:
+           return True
     return False
 
 
-def try_advance_state(page, entries: list[dict], focus_terms: set[str], warnings: list[str], max_clicks: int = 3) -> bool:
-    candidates = [entry for entry in entries if entry.get('tag') in {'button', 'a'}]
-    candidates.sort(key=lambda entry: entry_score(entry, focus_terms), reverse=True)
+def validate_target_url(target_url: str, allowed_domains: list[str]) -> tuple[str | None, str | None]:
+    parsed = urlparse(target_url or '')
+    if parsed.scheme not in {'http', 'https'}:
+        return None, f'Unsafe URL scheme: {parsed.scheme or "(missing)"}'
+    if not parsed.hostname:
+        return None, 'Target URL is missing a hostname'
+    if not is_domain_allowed(parsed.hostname, allowed_domains):
+        return None, f'Hostname {parsed.hostname} is not allowed'
+    return target_url, None
 
-    clicked = False
-    for entry in candidates[:max_clicks]:
+
+def normalize_allowed_domains(raw: list[str] | None) -> list[str]:
+    return [compact(item) for item in (raw or []) if compact(item)]
+
+
+def resolve_page_object_name(page, page_objects: list[dict], failure_context: dict | None) -> str | None:
+    if failure_context and isinstance(failure_context, dict):
+       failed_page_object = compact(str(failure_context.get('failedPageObject') or ''))
+       if failed_page_object:
+           for page_object in page_objects:
+               if page_object.get('className') == failed_page_object:
+                   return failed_page_object
+
+    if not page_objects:
+       return build_page_object(page)
+
+    title = compact(page.title()).lower()
+    url = compact(page.url).lower()
+    context_bits = ' '.join(
+       compact(str(value)).lower()
+       for value in [
+           failure_context.get('failedTestTitle') if isinstance(failure_context, dict) else '',
+           failure_context.get('failedSelector') if isinstance(failure_context, dict) else '',
+           failure_context.get('failedAssertion') if isinstance(failure_context, dict) else '',
+       ]
+    )
+    haystack = f'{title} {url} {context_bits}'
+
+    for page_object in page_objects:
+       class_name = str(page_object.get('className') or '')
+       feature = str(page_object.get('feature') or '')
+       tokens = [class_name.lower(), feature.lower(), feature.replace('-', ' ').lower()]
+       if any(token and token in haystack for token in tokens):
+           return class_name or None
+
+    return None
+
+
+def resolve_selector_locator(page, selector: str):
+    direct = selector.strip().removeprefix('page.').removeprefix('this.page.')
+    if direct.startswith('getByTestId('):
+       value = strip_quotes(direct[len('getByTestId('):-1])
+       return page.get_by_test_id(value)
+    if direct.startswith('getByLabel('):
+       value = strip_quotes(direct[len('getByLabel('):-1])
+       return page.get_by_label(value)
+    if direct.startswith('getByPlaceholder('):
+       value = strip_quotes(direct[len('getByPlaceholder('):-1])
+       return page.get_by_placeholder(value)
+    if direct.startswith('getByText('):
+       value = strip_quotes(direct[len('getByText('):-1])
+       return page.get_by_text(value)
+    if direct.startswith('getByRole('):
+       match = re.match(r"getByRole\(\s*['\"]([^'\"]+)['\"](?:\s*,\s*\{\s*([^}]*)\s*\})?\s*\)$", direct)
+       if match:
+           role = match.group(1)
+           options = match.group(2) or ''
+           name_match = re.search(r"name:\s*['\"]([^'\"]+)['\"]", options)
+           level_match = re.search(r"level:\s*(\d+)", options)
+           kwargs = {}
+           if name_match:
+               kwargs['name'] = name_match.group(1)
+           if level_match:
+               kwargs['level'] = int(level_match.group(1))
+           return page.get_by_role(role, **kwargs)
+    if direct.startswith('locator('):
+        value = strip_quotes(direct[len('locator('):-1])
+        return page.locator(value)
+    return None
+
+
+def apply_replay_plan(page, replay_plan: dict, generated_data: dict, warnings: list[str]) -> None:
+    for step in replay_plan.get('steps', []):
+        action = step.get('action')
+        selector = step.get('selector')
         try:
-            locator = get_entry_locator(page, entry)
+            if action == 'navigate':
+                continue
+            if not selector:
+                warnings.append(f'Replay step "{action} {step.get("target", "")}" is missing a selector')
+                continue
+            locator = resolve_selector_locator(page, selector)
             if locator is None:
+                warnings.append(f'Replay selector could not be resolved: {selector}')
                 continue
-            if locator.count() <= 0:
-                continue
-            locator.click()
-            clicked = True
-            try:
-                page.wait_for_load_state('domcontentloaded', timeout=1500)
-            except Exception:
-                pass
-            try:
-                page.wait_for_timeout(250)
-            except Exception:
-                pass
+            if action == 'fill':
+                value_ref = step.get('valueRef')
+                value = resolve_value_ref(generated_data, value_ref)
+                if value is None:
+                    warnings.append(f'Replay value reference could not be resolved: {value_ref}')
+                    continue
+                locator.fill(value)
+            elif action == 'select':
+                value_ref = step.get('valueRef')
+                value = resolve_value_ref(generated_data, value_ref) or value_ref
+                if not value:
+                    warnings.append(f'Replay select step missing a value: {selector}')
+                    continue
+                locator.select_option(value)
+            elif action == 'check':
+                locator.check()
+            elif action == 'uncheck':
+                locator.uncheck()
+            elif action in {'assertVisible', 'assertText'}:
+                locator.wait_for(state='visible', timeout=2000)
+            else:
+                locator.click()
         except Exception as exc:
-            warnings.append(f'Unable to advance page state: {exc}')
-    return clicked
+            warnings.append(f'Replay step failed for {step.get("target", action)}: {exc}')
 
 
-def discover_states(page, focus_areas: list[str], warnings: list[str]) -> list[tuple[str, list[dict]]]:
-    states: list[tuple[str, list[dict]]] = []
-    focus_terms = normalize_focus_terms(focus_areas)
-    page_object = build_page_object(page)
-    entries = snapshot_elements(page)
-    states.append((page_object, entries))
-
-    if try_login(page, entries, warnings):
-        try:
-            page.wait_for_load_state('domcontentloaded', timeout=1500)
-        except Exception:
-            pass
-        states.append((build_page_object(page), snapshot_elements(page)))
-        entries = states[-1][1]
-
-    for _ in range(3):
-        if not try_advance_state(page, entries, focus_terms, warnings):
-            break
-        try:
-            page.wait_for_load_state('domcontentloaded', timeout=1500)
-        except Exception:
-            pass
-        next_entries = snapshot_elements(page)
-        if next_entries == entries:
-            break
-        entries = next_entries
-        states.append((build_page_object(page), entries))
-
-    return states
+def resolve_value_ref(generated_data: dict, ref: str | None) -> str | None:
+    if not ref:
+        return None
+    parts = ref.split('.')
+    if len(parts) == 2 and parts[0] in {'validUser', 'invalidUser'}:
+        bucket = generated_data.get('credentials', {}).get(parts[0], {})
+        value = bucket.get(parts[1])
+        return value if isinstance(value, str) and value else None
+    if len(parts) == 2 and parts[0] == 'inputs':
+        value = generated_data.get('inputs', {}).get(parts[1])
+        return value if isinstance(value, str) and value else None
+    return None
 
 
 def build_locators_from_snapshot(page_object: str, snapshot: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -405,7 +463,11 @@ def run_payload(payload: dict, output_dir: Path) -> dict:
     task = payload.get('task', {}) if isinstance(payload.get('task', {}), dict) else {}
     failure_category = classify(payload, 'unknown')
     target_url = str(payload.get('targetUrl', ''))
-    focus_areas = [str(item) for item in task.get('focusAreas', []) if isinstance(item, str)]
+    replay_plan = payload.get('replayPlan', {}) if isinstance(payload.get('replayPlan', {}), dict) else {}
+    generated_data = payload.get('generatedData', {}) if isinstance(payload.get('generatedData', {}), dict) else {}
+    page_objects = payload.get('pageObjects', []) if isinstance(payload.get('pageObjects', []), list) else []
+    failure_context = payload.get('failureContext', {}) if isinstance(payload.get('failureContext', {}), dict) else {}
+    allowed_domains = normalize_allowed_domains(payload.get('allowedDomains') if isinstance(payload.get('allowedDomains'), list) else [])
     warnings: list[str] = []
     locators: list[dict] = []
     assertions: list[dict] = []
@@ -417,10 +479,22 @@ def run_payload(payload: dict, output_dir: Path) -> dict:
         page = browser.new_page()
         try:
             timeout_seconds = int(payload.get('timeoutSeconds', 180))
-            page.goto(target_url, wait_until='domcontentloaded', timeout=timeout_seconds * 1000)
-            states = discover_states(page, focus_areas, warnings)
+            validated_target, error = validate_target_url(target_url, allowed_domains)
+            if error:
+                return empty_result('failed', failure_category, f'Navigation rejected: {error}', [error])
 
-            for page_object, snapshot in states:
+            page.goto(validated_target, wait_until='domcontentloaded', timeout=timeout_seconds * 1000)
+            if not is_domain_allowed(urlparse(page.url).hostname or '', allowed_domains):
+                return empty_result('failed', failure_category, f'Redirect rejected: {page.url}', [f'Redirected to disallowed hostname: {page.url}'])
+
+            if replay_plan:
+                apply_replay_plan(page, replay_plan, generated_data, warnings)
+
+            page_object = resolve_page_object_name(page, page_objects, failure_context)
+            if page_objects and not page_object:
+                warnings.append('No safe page object mapping found; suggestions suppressed')
+            elif page_object:
+                snapshot = snapshot_elements(page)
                 state_locators, state_assertions, state_patches = build_locators_from_snapshot(page_object, snapshot)
                 locators.extend(state_locators)
                 assertions.extend(state_assertions)

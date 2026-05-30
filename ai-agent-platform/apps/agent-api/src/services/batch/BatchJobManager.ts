@@ -274,13 +274,22 @@ export class BatchJobManager {
                   webwrightReport.failureCategory = repair.failureCategory;
                   webwrightReport.warnings.push(...repair.warnings);
                   webwrightReport.recommendationsUsed = repair.recommendationsUsed;
+                  if (repair.failureContext) {
+                    webwrightReport.warnings.push(
+                      `Repaired failure: ${repair.failureContext.failedTestTitle ?? repair.failureContext.failedPageObject ?? repair.failureContext.failureCategory}`,
+                    );
+                  }
 
                   if (!repair.enabled || repair.status === 'failed') {
                     webwrightReport.status = 'failed';
                     continue;
                   }
 
-                  const validated = await this.webwrightValidator.validate(repair, job.url);
+                  const pageObjects = repair.pageObjects ?? [];
+                  const validated = await this.webwrightValidator.validate(repair, job.url, {
+                    generatedData: repair.generatedData,
+                    replayPlan: repair.replayPlan,
+                  });
                   webwrightReport.recommendationsUsed = validated.recommendationsUsed;
                   webwrightReport.warnings.push(...validated.warnings);
 
@@ -289,7 +298,7 @@ export class BatchJobManager {
                     continue;
                   }
 
-                  const patchResult = this.webwrightPatchService.apply(finalDir, validated);
+                  const patchResult = this.webwrightPatchService.apply(finalDir, validated, pageObjects);
                   webwrightReport.repairApplied = patchResult.patchedFiles.length > 0;
                   if (patchResult.patchedFiles.length > 0) {
                     log(`[Webwright] Patched ${patchResult.patchedFiles.length} file(s)`);

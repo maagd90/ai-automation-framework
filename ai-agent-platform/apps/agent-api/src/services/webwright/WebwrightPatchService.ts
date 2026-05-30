@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { WebwrightAssertionSuggestion, WebwrightLocatorSuggestion } from './WebwrightResultParser';
 import type { WebwrightValidationResult } from './WebwrightSuggestionValidator';
+import type { WebwrightPageObjectMetadata } from './WebwrightPageObjectMapper';
 
 export interface WebwrightPatchResult {
   patchedFiles: string[];
@@ -71,34 +72,43 @@ function toTypeScriptLiteral(value: string): string {
 }
 
 export class WebwrightPatchService {
-  apply(finalDir: string, result: WebwrightValidationResult): WebwrightPatchResult {
+  apply(
+    finalDir: string,
+    result: WebwrightValidationResult,
+    pageObjects: WebwrightPageObjectMetadata[] = [],
+  ): WebwrightPatchResult {
     const patchedFiles = new Set<string>();
     const warnings: string[] = [...result.warnings];
+    const metadata = pageObjects.length > 0 ? pageObjects : [];
 
     for (const locator of result.approvedLocators) {
-      const pagePath = path.join(finalDir, 'src', 'pages', `${locator.pageObject}.ts`);
-      if (fs.existsSync(pagePath)) {
-        this.patchPageObjectLocator(pagePath, locator);
-        patchedFiles.add(pagePath);
+      const resolvedPageObject = this.resolvePageObjectMetadata(finalDir, locator.pageObject, metadata);
+      if (resolvedPageObject) {
+        this.patchPageObjectLocator(resolvedPageObject.filePath, locator);
+        patchedFiles.add(resolvedPageObject.filePath);
       } else {
         warnings.push(`Page object not found: ${locator.pageObject}`);
       }
 
-      const locatorFile = this.resolveLocatorFile(finalDir, locator.pageObject);
+      const locatorFile = this.resolveLocatorFile(finalDir, locator.pageObject, metadata);
       if (locatorFile) {
         this.patchLocatorJson(locatorFile, locator);
         patchedFiles.add(locatorFile);
+      } else {
+        warnings.push(`Locator JSON not found for ${locator.pageObject}`);
       }
     }
 
     for (const assertion of result.approvedAssertions) {
-      const pagePath = path.join(finalDir, 'src', 'pages', `${assertion.pageObject}.ts`);
-      if (fs.existsSync(pagePath)) {
-        this.patchPageObjectAssertion(pagePath, assertion);
-        patchedFiles.add(pagePath);
+      const resolvedPageObject = this.resolvePageObjectMetadata(finalDir, assertion.pageObject, metadata);
+      if (resolvedPageObject) {
+        this.patchPageObjectAssertion(resolvedPageObject.filePath, assertion);
+        patchedFiles.add(resolvedPageObject.filePath);
+      } else {
+        warnings.push(`Page object not found: ${assertion.pageObject}`);
       }
 
-      const specFile = this.resolveSpecFile(finalDir, assertion.pageObject);
+      const specFile = this.resolveSpecFile(finalDir, assertion.pageObject, metadata);
       if (specFile) {
         if (this.patchSpecAssertion(specFile, assertion)) {
           patchedFiles.add(specFile);
@@ -210,7 +220,38 @@ export class WebwrightPatchService {
     fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8');
   }
 
-  private resolveLocatorFile(finalDir: string, pageObject: string): string | undefined {
+  private resolvePageObjectMetadata(
+    finalDir: string,
+    pageObject: string,
+    pageObjects: WebwrightPageObjectMetadata[],
+  ): WebwrightPageObjectMetadata | undefined {
+    const exact = pageObjects.find((candidate) =>
+      candidate.className === pageObject ||
+      candidate.filePath.endsWith(`${path.sep}${pageObject}.ts`) ||
+      candidate.locatorJsonPath?.includes(`${path.sep}${pageObject.toLowerCase().replace(/page$/, '')}`),
+    );
+    if (exact) return exact;
+
+    const fallbackPath = path.join(finalDir, 'src', 'pages', `${pageObject}.ts`);
+    if (fs.existsSync(fallbackPath)) {
+      return {
+        className: pageObject,
+        filePath: fallbackPath,
+        locatorFields: [],
+        methods: [],
+        relatedSpecImports: [],
+        relatedSpecFiles: [],
+      };
+    }
+    return undefined;
+  }
+
+  private resolveLocatorFile(finalDir: string, pageObject: string, pageObjects: WebwrightPageObjectMetadata[]): string | undefined {
+    const metadata = pageObjects.find((candidate) => candidate.className === pageObject || candidate.feature === pageObject);
+    if (metadata?.locatorJsonPath) {
+      return metadata.locatorJsonPath;
+    }
+
     const locatorsDir = path.join(finalDir, 'src', 'locators');
     if (!fs.existsSync(locatorsDir)) return undefined;
     const targetBase = toKebab(pageObject);
@@ -229,7 +270,12 @@ export class WebwrightPatchService {
     return candidates.length > 0 ? path.join(locatorsDir, candidates[0]) : undefined;
   }
 
-  private resolveSpecFile(finalDir: string, pageObject: string): string | undefined {
+  private resolveSpecFile(finalDir: string, pageObject: string, pageObjects: WebwrightPageObjectMetadata[]): string | undefined {
+    const metadata = pageObjects.find((candidate) => candidate.className === pageObject);
+    if (metadata?.relatedSpecFiles.length) {
+      return metadata.relatedSpecFiles[0];
+    }
+
     const testsDir = path.join(finalDir, 'src', 'tests');
     if (!fs.existsSync(testsDir)) return undefined;
     const candidate = path.join(testsDir, `${toKebab(pageObject)}.spec.ts`);

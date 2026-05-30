@@ -5,6 +5,8 @@ import type {
   WebwrightAssertionSuggestion,
   WebwrightLocatorSuggestion,
 } from './WebwrightResultParser';
+import type { WebwrightGeneratedDataSnapshot } from './WebwrightGeneratedDataExtractor';
+import type { WebwrightReplayPlan } from './WebwrightStepReplayPlanBuilder';
 
 export interface WebwrightValidationResult {
   status: ParsedWebwrightResult['status'];
@@ -18,6 +20,11 @@ export interface WebwrightValidationResult {
   recommendationsUsed: number;
 }
 
+export interface WebwrightValidationOptions {
+  generatedData?: WebwrightGeneratedDataSnapshot;
+  replayPlan?: WebwrightReplayPlan;
+}
+
 function parseQuotedValue(value: string): string | undefined {
   const match = value.match(/^['"`](.*)['"`]$/);
   return match?.[1];
@@ -29,9 +36,9 @@ function parseRoleSelector(selector: string): { role: string; name?: string } | 
   return { role: match[1], name: match[2] };
 }
 
-function parseStrategyLocator(page: any, suggestion: WebwrightLocatorSuggestion) {
+function parseStrategyLocator(page: any, suggestion: WebwrightLocatorSuggestion | { selector: string }) {
   const selector = suggestion.selector.trim();
-  const direct = selector.replace(/^page\./, '');
+  const direct = selector.replace(/^page\./, '').replace(/^this\.page\./, '');
 
   if (direct.startsWith('getByTestId(')) {
     const value = parseQuotedValue(direct.slice('getByTestId('.length, -1));
@@ -57,12 +64,10 @@ function parseStrategyLocator(page: any, suggestion: WebwrightLocatorSuggestion)
     const value = parseQuotedValue(direct.slice('locator('.length, -1));
     return value ? page.locator(value) : null;
   }
+  if (direct.startsWith('page.locator(') || direct.startsWith('page.getBy')) {
+    return parseStrategyLocator(page, { selector: direct });
+  }
   return null;
-}
-
-function wantsPrerequisiteFlow(suggestion: WebwrightLocatorSuggestion | WebwrightAssertionSuggestion): boolean {
-  const haystack = `${suggestion.pageObject} ${'selector' in suggestion ? suggestion.selector : suggestion.assertion} ${suggestion.reason}`.toLowerCase();
-  return /login|sign in|sign-in|auth|account|profile|product|catalog|shop|cart|checkout|dashboard|order|basket|bag/.test(haystack);
 }
 
 async function firstPresent(candidates: any[]): Promise<any | null> {
@@ -76,63 +81,83 @@ async function firstPresent(candidates: any[]): Promise<any | null> {
   return null;
 }
 
-async function attemptLoginFlow(page: any): Promise<boolean> {
-  const password = await firstPresent([
-    page.locator('input[type="password"]'),
-  ]);
-  if (!password) return false;
-
-  const username = await firstPresent([
-    page.locator('input[type="email"]'),
-    page.locator('input[type="text"]'),
-    // Some browsers/web apps omit the type attribute, which defaults to text.
-    page.locator('input:not([type])'),
-  ]);
-
-  if (username?.fill) {
-    await username.fill('webwright-user').catch(() => undefined);
+function resolveValue(ref: string | undefined, generatedData?: WebwrightGeneratedDataSnapshot): string | undefined {
+  if (!ref || !generatedData) return undefined;
+  const parts = ref.split('.');
+  if (parts.length === 2 && (parts[0] === 'validUser' || parts[0] === 'invalidUser')) {
+    const bucket = generatedData.credentials[parts[0]];
+    const value = bucket[parts[1] as keyof typeof bucket];
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
-  if (password?.fill) {
-    await password.fill('webwright-pass').catch(() => undefined);
+  if (parts[0] === 'inputs' && parts[1]) {
+    const value = generatedData.inputs[parts[1]];
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
-
-  const submit = await firstPresent([
-    page.locator('button[type="submit"]'),
-    page.locator('input[type="submit"]'),
-    page.locator('form button'),
-  ]);
-  if (!submit) return false;
-
-  await submit.click().catch(() => undefined);
-  await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-  return true;
+  return undefined;
 }
 
-async function attemptPageAdvance(page: any): Promise<boolean> {
-  const candidates = await firstPresent([
-    page.getByRole?.('link'),
-    page.getByRole?.('button'),
-  ]);
-  if (!candidates) return false;
+async function applyReplayPlan(page: any, plan: WebwrightReplayPlan, generatedData?: WebwrightGeneratedDataSnapshot, warnings: string[] = []): Promise<void> {
+  for (const step of plan.steps) {
+    try {
+      if (step.action === 'navigate') {
+        continue;
+      }
 
-  try {
-    await candidates.first().click().catch(() => undefined);
-    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-    return true;
-  } catch {
-    return false;
-  }
-}
+      if (!step.selector) {
+        warnings.push(`Replay step "${step.action} ${step.target}" is missing a selector`);
+        continue;
+      }
 
-async function resolvePrerequisites(page: any, suggestion: WebwrightLocatorSuggestion | WebwrightAssertionSuggestion): Promise<void> {
-  if (!wantsPrerequisiteFlow(suggestion)) {
-    return;
-  }
+      const locator = parseStrategyLocator(page, { selector: step.selector });
+      if (!locator) {
+        warnings.push(`Replay selector could not be resolved: ${step.selector}`);
+        continue;
+      }
 
-  await attemptLoginFlow(page);
-  const advanced = await attemptPageAdvance(page);
-  if (advanced) {
-    await attemptPageAdvance(page);
+      if (step.action === 'fill') {
+        const value = resolveValue(step.valueRef, generatedData);
+        if (value === undefined) {
+          warnings.push(`Replay value reference could not be resolved: ${step.valueRef ?? '(missing)'}`);
+          continue;
+        }
+        await locator.fill(value);
+        continue;
+      }
+
+      if (step.action === 'select') {
+        const value = resolveValue(step.valueRef, generatedData) ?? step.valueRef;
+        if (!value) {
+          warnings.push(`Replay select step missing value reference for ${step.target}`);
+          continue;
+        }
+        await locator.selectOption(value);
+        continue;
+      }
+
+      if (step.action === 'check') {
+        await locator.check();
+        continue;
+      }
+
+      if (step.action === 'uncheck') {
+        await locator.uncheck();
+        continue;
+      }
+
+      if (step.action === 'assertVisible') {
+        await locator.waitFor({ state: 'visible' });
+        continue;
+      }
+
+      if (step.action === 'assertText') {
+        await locator.waitFor({ state: 'visible' });
+        continue;
+      }
+
+      await locator.click();
+    } catch (err) {
+      warnings.push(`Replay step failed for "${step.target}": ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 
@@ -143,12 +168,14 @@ async function validateLocator(page: any, locator: WebwrightLocatorSuggestion): 
 }
 
 async function validateAssertion(page: any, assertion: WebwrightAssertionSuggestion): Promise<boolean> {
-  const selector = assertion.assertion.match(/this\.(page|[A-Za-z0-9_]+)\.locator\((['"`].*['"`])\)/)?.[2];
-  const parsedSelector = selector ? parseQuotedValue(selector) : undefined;
+  const selector = assertion.assertion.match(/this\.(page|[A-Za-z0-9_]+)\.(locator|getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\(([^)]+)\)/);
+  const directSelector = selector ? `page.${selector[2]}(${selector[3]})` : undefined;
+  const parsedSelector = directSelector ?? assertion.assertion.match(/page\.(locator|getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\(([^)]+)\)/)?.[0];
   if (!parsedSelector) {
     return assertion.assertion.includes('toBeVisible') || assertion.assertion.includes('toHaveText');
   }
-  return (await page.locator(parsedSelector).count()) > 0;
+  const locator = parseStrategyLocator(page, { selector: parsedSelector });
+  return locator ? (await locator.count()) > 0 : false;
 }
 
 export class WebwrightSuggestionValidator {
@@ -157,6 +184,7 @@ export class WebwrightSuggestionValidator {
   async validate(
     result: ParsedWebwrightResult,
     targetUrl: string,
+    options: WebwrightValidationOptions = {},
   ): Promise<WebwrightValidationResult> {
     const browser = await this.launchBrowser();
     const page = await browser.newPage();
@@ -169,6 +197,10 @@ export class WebwrightSuggestionValidator {
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS * 1000 });
 
+      if (options.replayPlan) {
+        await applyReplayPlan(page, options.replayPlan, options.generatedData, warnings);
+      }
+
       for (const locator of result.suggestedLocators) {
         if (locator.confidenceScore < webwrightConfig.WEBWRIGHT_MIN_CONFIDENCE) {
           rejectedLocators.push(locator);
@@ -178,25 +210,13 @@ export class WebwrightSuggestionValidator {
 
         if (await validateLocator(page, locator)) {
           approvedLocators.push(locator);
-          continue;
-        }
-
-        await resolvePrerequisites(page, locator);
-        if (await validateLocator(page, locator)) {
-          approvedLocators.push(locator);
         } else {
           rejectedLocators.push(locator);
-          warnings.push(`Locator ${locator.fieldName} did not resolve after prerequisite flow attempts`);
+          warnings.push(`Locator ${locator.fieldName} did not resolve after replay steps`);
         }
       }
 
       for (const assertion of result.suggestedAssertions) {
-        if (await validateAssertion(page, assertion)) {
-          approvedAssertions.push(assertion);
-          continue;
-        }
-
-        await resolvePrerequisites(page, assertion);
         if (await validateAssertion(page, assertion)) {
           approvedAssertions.push(assertion);
         } else {

@@ -8,7 +8,23 @@ const TMP_BASE = fs.mkdtempSync(path.join(os.tmpdir(), 'webwright-repair-'));
 function makeRequest() {
   const finalDir = path.join(TMP_BASE, 'project');
   fs.mkdirSync(path.join(finalDir, 'src', 'pages'), { recursive: true });
+  fs.mkdirSync(path.join(finalDir, 'src', 'tests'), { recursive: true });
+  fs.mkdirSync(path.join(finalDir, 'src', 'test-data'), { recursive: true });
   fs.writeFileSync(path.join(finalDir, 'src', 'pages', 'LoginPage.ts'), 'export class LoginPage {}', 'utf8');
+  fs.writeFileSync(
+    path.join(finalDir, 'src', 'tests', 'login.spec.ts'),
+    "import { LoginPage } from '../pages/LoginPage';\nimport loginData from '../test-data/login.data.json';\ntest('Login', async ({ page }) => {\n  const loginPage = new LoginPage(page);\n  await loginPage.enterUsername(loginData.validUser.username);\n});\n",
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(finalDir, 'src', 'test-data', 'login.data.json'),
+    JSON.stringify({
+      validUser: { username: 'standard_user', password: 'secret_sauce' },
+      invalidUser: { username: 'locked_out_user', password: 'wrong_password' },
+      inputs: { searchTerm: 'bike' },
+    }, null, 2),
+    'utf8',
+  );
   return {
     jobId: 'job-1',
     targetUrl: 'https://example.com',
@@ -92,5 +108,8 @@ describe('WebwrightRepairService', () => {
     expect(result.status).toBe('passed');
     expect(result.repairApplied).toBe(true);
     expect(result.suggestedLocators).toHaveLength(1);
+    expect(result.generatedData.credentials.validUser.username).toBe('standard_user');
+    expect(result.replayPlan.steps.length).toBeGreaterThan(0);
+    expect(result.pageObjects.map((pageObject) => pageObject.className)).toContain('LoginPage');
   });
 });

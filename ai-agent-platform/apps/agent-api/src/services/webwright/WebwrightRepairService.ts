@@ -1,9 +1,26 @@
 import fs from 'fs';
 import path from 'path';
 import { webwrightConfig } from './WebwrightConfig';
-import { WebwrightTaskBuilder } from './WebwrightTaskBuilder';
+import { WebwrightTaskBuilder, type WebwrightTask } from './WebwrightTaskBuilder';
 import { WebwrightResultParser, type ParsedWebwrightResult } from './WebwrightResultParser';
 import { WebwrightFailureClassifier, type WebwrightFailureCategory } from './WebwrightFailureClassifier';
+import {
+  WebwrightGeneratedDataExtractor,
+  type WebwrightGeneratedDataSnapshot,
+} from './WebwrightGeneratedDataExtractor';
+import {
+  WebwrightFailureContextExtractor,
+  type WebwrightFailureContext,
+} from './WebwrightFailureContextExtractor';
+import {
+  WebwrightPageObjectMapper,
+  type WebwrightPageObjectMetadata,
+} from './WebwrightPageObjectMapper';
+import {
+  WebwrightStepReplayPlanBuilder,
+  type GeneratedSpecSource,
+  type WebwrightReplayPlan,
+} from './WebwrightStepReplayPlanBuilder';
 
 export interface WebwrightRepairRequest {
   jobId: string;
@@ -21,6 +38,11 @@ export interface WebwrightRepairResult extends ParsedWebwrightResult {
   repairApplied: boolean;
   recommendationsUsed: number;
   generatedFiles: string[];
+  generatedData: WebwrightGeneratedDataSnapshot;
+  replayPlan: WebwrightReplayPlan;
+  failureContext?: WebwrightFailureContext;
+  pageObjects: WebwrightPageObjectMetadata[];
+  task?: WebwrightTask;
 }
 
 function isInsideDocker(): boolean {
@@ -48,7 +70,7 @@ function readPreview(filePath: string, maxChars = 20_000): string {
   }
 }
 
-function collectGeneratedFiles(finalDir: string): Array<{ path: string; content: string }> {
+function collectGeneratedArtifacts(finalDir: string): Array<{ path: string; content: string }> {
   const root = path.join(finalDir, 'src');
   const searchDirs = ['pages', 'tests', 'test-data', 'locators'].map((sub) => path.join(root, sub));
   const files: Array<{ path: string; content: string }> = [];
@@ -76,10 +98,23 @@ function collectGeneratedFiles(finalDir: string): Array<{ path: string; content:
   return files;
 }
 
+function collectSpecSources(files: Array<{ path: string; content: string }>): GeneratedSpecSource[] {
+  return files
+    .filter((file) => file.path.endsWith('.spec.ts'))
+    .map((file) => ({ filePath: file.path, source: file.content }));
+}
+
+function collectPageObjectFiles(finalDir: string): WebwrightPageObjectMetadata[] {
+  return new WebwrightPageObjectMapper().collect(finalDir);
+}
+
 export class WebwrightRepairService {
   private readonly classifier = new WebwrightFailureClassifier();
   private readonly taskBuilder = new WebwrightTaskBuilder();
   private readonly parser = new WebwrightResultParser();
+  private readonly generatedDataExtractor = new WebwrightGeneratedDataExtractor();
+  private readonly failureContextExtractor = new WebwrightFailureContextExtractor();
+  private readonly replayPlanBuilder = new WebwrightStepReplayPlanBuilder();
 
   shouldRepair(stdout: string, stderr: string): { category: WebwrightFailureCategory; allowed: boolean } {
     const category = this.classifier.classify(`${stdout}\n${stderr}`);
@@ -88,42 +123,64 @@ export class WebwrightRepairService {
 
   async repair(request: WebwrightRepairRequest): Promise<WebwrightRepairResult> {
     if (webwrightConfig.ENABLE_WEBWRIGHT !== true) {
-      return this.skippedResult('Webwright is disabled', request, 'unknown');
+      return this.skippedResult('Webwright is disabled', 'unknown');
     }
     if (webwrightConfig.WEBWRIGHT_DOCKER_ONLY && !isInsideDocker()) {
-      return this.skippedResult('Webwright requires Docker', request, 'unknown');
+      return this.skippedResult('Webwright requires Docker', 'unknown');
     }
 
     const classifier = this.shouldRepair(request.stdout, request.stderr);
     if (!classifier.allowed) {
-      return this.skippedResult(`Failure category ${classifier.category} is not eligible for repair`, request, classifier.category);
+      return this.skippedResult(`Failure category ${classifier.category} is not eligible for repair`, classifier.category);
     }
 
     const jobOutputDir = path.join(webwrightConfig.WEBWRIGHT_OUTPUT_DIR, request.jobId);
     fs.mkdirSync(jobOutputDir, { recursive: true });
 
-    const generatedFiles = collectGeneratedFiles(request.finalDir);
-    const pageObjects = generatedFiles
-      .filter((file) => file.path.includes(`${path.sep}pages${path.sep}`))
-      .map((file) => path.basename(file.path, '.ts'));
+    const generatedFiles = collectGeneratedArtifacts(request.finalDir);
+    const generatedData = this.generatedDataExtractor.extract(request.finalDir);
+    const pageObjects = collectPageObjectFiles(request.finalDir);
+    const specSources = collectSpecSources(generatedFiles);
+    const failureContextResult = this.failureContextExtractor.extract({
+      stdout: sanitize(request.stdout),
+      stderr: sanitize(request.stderr),
+      failedSpecPath: request.failedSpecPath,
+      generatedSpecSources: specSources,
+      pageObjects,
+    });
+    const replayPlan = this.replayPlanBuilder.buildFromSpecSources(
+      specSources,
+      generatedData,
+      pageObjects,
+      request.targetUrl,
+    );
+    const task = this.taskBuilder.buildRepairTask({
+      targetUrl: request.targetUrl,
+      failedSpecPath: request.failedSpecPath,
+      failureCategory: classifier.category,
+      summary: `Generated test failed with ${classifier.category} issues`,
+      stdout: sanitize(request.stdout),
+      stderr: sanitize(request.stderr),
+      generatedFiles: generatedFiles.map((file) => file.path),
+      pageObjects: pageObjects.map((pageObject) => pageObject.className),
+      generatedData,
+      replayPlan,
+      failureContext: failureContextResult.failureContext,
+      pageObjectsMetadata: pageObjects,
+    });
 
     const input = {
       jobId: request.jobId,
       outputDir: jobOutputDir,
-      task: this.taskBuilder.buildRepairTask({
-        targetUrl: request.targetUrl,
-        failedSpecPath: request.failedSpecPath,
-        failureCategory: classifier.category,
-        summary: `Generated test failed with ${classifier.category} issues`,
-        stdout: sanitize(request.stdout),
-        stderr: sanitize(request.stderr),
-        generatedFiles: generatedFiles.map((file) => file.path),
-        pageObjects,
-      }),
+      task,
       targetUrl: request.targetUrl,
       failedSpecPath: request.failedSpecPath,
       failureCategory: classifier.category,
       generatedFiles,
+      generatedData,
+      replayPlan,
+      failureContext: failureContextResult.failureContext,
+      pageObjects,
       stdout: sanitize(request.stdout),
       stderr: sanitize(request.stderr),
       timeoutSeconds: webwrightConfig.WEBWRIGHT_TIMEOUT_SECONDS,
@@ -142,9 +199,14 @@ export class WebwrightRepairService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
-        ...this.skippedResult(`Webwright repair failed: ${message}`, request, classifier.category),
+        ...this.skippedResult(`Webwright repair failed: ${message}`, classifier.category),
         enabled: true,
         status: 'failed',
+        generatedData,
+        replayPlan,
+        failureContext: failureContextResult.failureContext,
+        pageObjects,
+        task,
       };
     }
 
@@ -156,12 +218,16 @@ export class WebwrightRepairService {
       repairApplied: parsed.suggestedLocators.length > 0 || parsed.suggestedAssertions.length > 0,
       recommendationsUsed: parsed.suggestedLocators.length + parsed.suggestedAssertions.length,
       generatedFiles: generatedFiles.map((file) => file.path),
+      generatedData,
+      replayPlan,
+      failureContext: failureContextResult.failureContext,
+      pageObjects,
+      task,
     };
   }
 
   private skippedResult(
     summary: string,
-    request: WebwrightRepairRequest,
     failureCategory: WebwrightFailureCategory,
   ): WebwrightRepairResult {
     return {
@@ -183,6 +249,10 @@ export class WebwrightRepairService {
       repairApplied: false,
       recommendationsUsed: 0,
       generatedFiles: [],
+      generatedData: { credentials: { validUser: {}, invalidUser: {} }, inputs: {}, warnings: [], sourceFiles: [] },
+      replayPlan: { steps: [], warnings: [] },
+      pageObjects: [],
+      task: undefined,
     };
   }
 
