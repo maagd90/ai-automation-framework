@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process';
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 
-const RUNNER_PATH = '/tmp/workspace/maagd90/ai-automation-framework/webwright-sidecar/runner.py';
+const RUNNER_PATH = path.resolve(process.cwd(), 'webwright-sidecar/runner.py');
 
 describe('Webwright runner domain enforcement', () => {
   it('allows exact and wildcard domains but blocks substring attacks and unsafe schemes', () => {

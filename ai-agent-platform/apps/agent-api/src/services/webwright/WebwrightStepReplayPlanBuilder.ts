@@ -123,7 +123,7 @@ function normalizeAction(action: string, target: string): WebwrightReplayAction 
   const normalized = action.toLowerCase().trim();
   if (/^(navigate|goto|open)/.test(normalized)) return 'navigate';
   if (/^(fill|enter|type|input)/.test(normalized)) return 'fill';
-  if (/^(click|press|tap|submit|add|remove)/.test(normalized)) return 'click';
+  if (/^(click|press|tap|submit|add)/.test(normalized)) return 'click';
   if (/^select/.test(normalized)) return 'select';
   if (/^check/.test(normalized)) return 'check';
   if (/^uncheck/.test(normalized)) return 'uncheck';

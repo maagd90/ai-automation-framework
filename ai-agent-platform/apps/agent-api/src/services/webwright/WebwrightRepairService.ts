@@ -73,7 +73,7 @@ function readPreview(filePath: string, maxChars = 20_000): string {
 function collectGeneratedArtifacts(finalDir: string): Array<{ path: string; content: string }> {
   const root = path.join(finalDir, 'src');
   const searchDirs = ['pages', 'tests', 'test-data', 'locators'].map((sub) => path.join(root, sub));
-  const files: Array<{ path: string; content: string }> = [];
+  const artifacts: Array<{ path: string; content: string }> = [];
 
   const walk = (dir: string): void => {
     if (!fs.existsSync(dir)) return;
@@ -84,7 +84,7 @@ function collectGeneratedArtifacts(finalDir: string): Array<{ path: string; cont
         continue;
       }
       if (!/\.(ts|json)$/i.test(entry.name)) continue;
-      files.push({
+      artifacts.push({
         path: entryPath,
         content: readPreview(entryPath),
       });
@@ -95,11 +95,11 @@ function collectGeneratedArtifacts(finalDir: string): Array<{ path: string; cont
     walk(dir);
   }
 
-  return files;
+  return artifacts;
 }
 
-function collectSpecSources(files: Array<{ path: string; content: string }>): GeneratedSpecSource[] {
-  return files
+function collectSpecSources(artifacts: Array<{ path: string; content: string }>): GeneratedSpecSource[] {
+  return artifacts
     .filter((file) => file.path.endsWith('.spec.ts'))
     .map((file) => ({ filePath: file.path, source: file.content }));
 }

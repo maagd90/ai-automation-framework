@@ -20,6 +20,13 @@ def compact(value: str | None) -> str:
     return re.sub(r"\s+", ' ', value or '').strip()
 
 
+def strip_quotes(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {'"', "'", '`'}:
+        return stripped[1:-1]
+    return stripped
+
+
 def slugify(value: str, fallback: str = 'page') -> str:
     tokens = re.sub(r"[^a-zA-Z0-9]+", ' ', value).strip().split()
     if not tokens:
@@ -303,39 +310,43 @@ def normalize_allowed_domains(raw: list[str] | None) -> list[str]:
 
 def resolve_page_object_name(page, page_objects: list[dict], failure_context: dict | None) -> str | None:
     if failure_context and isinstance(failure_context, dict):
-       failed_page_object = compact(str(failure_context.get('failedPageObject') or ''))
-       if failed_page_object:
+        failed_page_object = compact(str(failure_context.get('failedPageObject') or ''))
+        if failed_page_object:
            for page_object in page_objects:
                if page_object.get('className') == failed_page_object:
                    return failed_page_object
 
     if not page_objects:
-       return build_page_object(page)
+        return build_page_object(page)
 
     title = compact(page.title()).lower()
     url = compact(page.url).lower()
     context_bits = ' '.join(
-       compact(str(value)).lower()
-       for value in [
+        compact(str(value)).lower()
+        for value in [
            failure_context.get('failedTestTitle') if isinstance(failure_context, dict) else '',
            failure_context.get('failedSelector') if isinstance(failure_context, dict) else '',
            failure_context.get('failedAssertion') if isinstance(failure_context, dict) else '',
-       ]
+        ]
     )
     haystack = f'{title} {url} {context_bits}'
 
     for page_object in page_objects:
-       class_name = str(page_object.get('className') or '')
-       feature = str(page_object.get('feature') or '')
-       tokens = [class_name.lower(), feature.lower(), feature.replace('-', ' ').lower()]
-       if any(token and token in haystack for token in tokens):
+        class_name = str(page_object.get('className') or '')
+        feature = str(page_object.get('feature') or '')
+        tokens = [class_name.lower(), feature.lower(), feature.replace('-', ' ').lower()]
+        if any(token and token in haystack for token in tokens):
            return class_name or None
 
     return None
 
 
 def resolve_selector_locator(page, selector: str):
-    direct = selector.strip().removeprefix('page.').removeprefix('this.page.')
+    direct = selector.strip()
+    if direct.startswith('page.'):
+        direct = direct[len('page.'):]
+    if direct.startswith('this.page.'):
+        direct = direct[len('this.page.'):]
     if direct.startswith('getByTestId('):
        value = strip_quotes(direct[len('getByTestId('):-1])
        return page.get_by_test_id(value)
