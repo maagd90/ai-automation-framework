@@ -68,9 +68,11 @@ export class FeatureBatchTestCaseParser {
 
       const stepMatch = STEP_KW.exec(line);
       if (stepMatch) {
+        const stepText = stepMatch[2].trim();
         const step: TestStep = {
           order: stepOrder++,
-          action: `${stepMatch[1]} ${stepMatch[2]}`.trim(),
+          action: '',
+          description: stepText,
         };
         if (inBackground) {
           backgroundSteps.push(step);

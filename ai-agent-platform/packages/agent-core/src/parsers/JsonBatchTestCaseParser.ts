@@ -72,6 +72,7 @@ export class JsonBatchTestCaseParser {
     const s = raw as Record<string, unknown>;
     const order = typeof s['order'] === 'number' ? s['order'] : Number(s['order'] ?? 0);
     const action = typeof s['action'] === 'string' ? s['action'] : '';
+    const description = typeof s['description'] === 'string' ? s['description'] : undefined;
     const target = typeof s['target'] === 'string' ? s['target'] : undefined;
     const value =
       typeof s['value'] === 'string'
@@ -80,6 +81,6 @@ export class JsonBatchTestCaseParser {
           ? s['expected']
           : undefined;
     const expected = typeof s['expected'] === 'string' ? s['expected'] : undefined;
-    return { order, action, target, value, expected };
+    return { order, action, description, target, value, expected };
   }
 }

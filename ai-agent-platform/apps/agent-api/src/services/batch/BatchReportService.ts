@@ -114,6 +114,7 @@ export class BatchReportService {
         traceUrl: execution?.traceUrl,
         inputSteps: child.inputSteps,
         steps: execution?.steps ?? [],
+        repairAttempts: execution?.repairAttempts,
       };
     });
   }

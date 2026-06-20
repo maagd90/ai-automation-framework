@@ -2,15 +2,17 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
-import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
+import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter, batchNormalizer } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../PersistentJobStore';
+import { createAiStepInfer } from '../AiStepInferService';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ScreenAwareMerger } from './ScreenAwareMerger';
 import { MergeValidationService } from './MergeValidationService';
 import { BatchReportService } from './BatchReportService';
 import { PlaywrightReportParser } from './PlaywrightReportParser';
+import { PlaywrightRepairSidecar } from './PlaywrightRepairSidecar';
 import { agentScaler } from './AgentScaler';
 
 const INSTALL_TIMEOUT_MS = 300_000;
@@ -22,6 +24,7 @@ export class BatchJobManager {
   private readonly validator = new MergeValidationService();
   private readonly reporter = new BatchReportService();
   private readonly playwrightParser = new PlaywrightReportParser();
+  private readonly repairSidecar = new PlaywrightRepairSidecar();
 
   async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
@@ -42,7 +45,13 @@ export class BatchJobManager {
 
       const content = fs.readFileSync(job.inputFile, 'utf8');
       const parser = new TestCaseParserFactory();
-      const batch = parser.parse(job.inputFile, content);
+      const rawBatch = parser.parse(job.inputFile, content);
+
+      const aiInfer = aiConfig?.usedFor?.parsing ? createAiStepInfer(aiConfig) : undefined;
+      const { batch, warnings } = await batchNormalizer.normalizeBatch(rawBatch, { aiInfer });
+      for (const w of warnings) {
+        log(`Step normalization: ${w.message}`);
+      }
 
       const validation = new TestCaseBatchValidator().validate(batch);
       if (!validation.valid) {
@@ -109,13 +118,43 @@ export class BatchJobManager {
         }
 
         log('Running Playwright tests…');
-        const testRunExitCode = await this.runCommand(finalDir, ['npm', 'test'], TEST_TIMEOUT_MS, log);
+        let testRunExitCode = await this.runCommand(finalDir, ['npm', 'test'], TEST_TIMEOUT_MS, log);
         log(`Playwright exit code: ${testRunExitCode}`);
 
-        const executionResults = this.playwrightParser.parse(
+        let executionResults = this.playwrightParser.parse(
           path.join(finalDir, 'reports', 'playwright-report.json'),
           job.jobId,
         );
+
+        if (testRunExitCode !== 0 && aiConfig?.usedFor?.failureAnalysis) {
+          log('Starting Playwright repair sidecar…');
+          const repair = await this.repairSidecar.repairFailedTests({
+            finalDir,
+            failedResults: executionResults,
+            aiConfig,
+            log,
+            runTests: async (specFilter) => {
+              if (specFilter && specFilter.length > 0) {
+                const patterns = specFilter.map((id) => `tests/${id}`);
+                return this.runCommand(
+                  finalDir,
+                  ['npx', 'playwright', 'test', ...patterns],
+                  TEST_TIMEOUT_MS,
+                  log,
+                );
+              }
+              return this.runCommand(finalDir, ['npm', 'test'], TEST_TIMEOUT_MS, log);
+            },
+            parseReport: () =>
+              this.playwrightParser.parse(
+                path.join(finalDir, 'reports', 'playwright-report.json'),
+                job.jobId,
+              ),
+          });
+          testRunExitCode = repair.exitCode;
+          executionResults = repair.executionResults;
+          log(`Repair sidecar finished — exit code ${testRunExitCode}`);
+        }
 
         const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
         job.report = this.reporter.build({

@@ -140,7 +140,36 @@ Enterprise batches use a top-level `batchName` and `testCases` array:
 
 Supported actions: `navigate`, `enter`, `click`, `select`, `check`, `uncheck`, `verifyText`, `verifyVisible`.
 
+### Natural language steps (description-only)
+
+Steps can omit `action` and use free-text `description` instead — the platform infers canonical actions before validation:
+
+```json
+{
+  "order": 2,
+  "description": "Enter \"standard_user\" into Username field"
+}
+```
+
+This also works for:
+
+- **Plain `.txt`** files in `login-test.txt` style (`Test Case:` / numbered steps)
+- **Gherkin `.feature`** files (Given/When/Then text is normalized automatically)
+
+See `examples/testcases/nl-description-batch.json` for a full sample.
+
 Plain text (`.txt`) and Gherkin (`.feature`) single-case formats are also supported — see `examples/testcases/`.
+
+### Playwright repair sidecar (optional)
+
+When **Generate + Execute** is selected and **AI failure analysis** is enabled, failed tests trigger an optional repair loop:
+
+1. Classify failure (locator, assertion, navigation, timing)
+2. Suggest fixes via AI when configured
+3. Patch page objects in `pages/` (never specs)
+4. Re-run quality gates and retry failed tests (up to 2 attempts)
+
+Repair attempts appear in the Case Inspector with suggestions and diffs.
 
 ## Enterprise features
 

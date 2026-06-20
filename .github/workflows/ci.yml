@@ -46,6 +46,7 @@ jobs:
           - examples/testcases/saucedemo-batch.json
           - examples/testcases/demo-app-batch.json
           - examples/testcases/saas-login-batch.json
+          - examples/testcases/nl-description-batch.json
           - examples/testcases/login-test.json
     steps:
       - uses: actions/checkout@v4

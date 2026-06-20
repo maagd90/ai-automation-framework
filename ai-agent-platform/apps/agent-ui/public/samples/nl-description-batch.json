@@ -1,0 +1,18 @@
+{
+  "batchName": "Natural Language Description Steps",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Login with valid credentials",
+      "priority": "high",
+      "steps": [
+        { "order": 1, "description": "Navigate to https://example.com/login" },
+        { "order": 2, "description": "Enter \"user@example.com\" into Email field" },
+        { "order": 3, "description": "Enter \"password\" into Password field" },
+        { "order": 4, "description": "Click Sign in button" },
+        { "order": 5, "description": "Verify Dashboard is visible" }
+      ],
+      "expectedResults": ["Dashboard should be visible"]
+    }
+  ]
+}

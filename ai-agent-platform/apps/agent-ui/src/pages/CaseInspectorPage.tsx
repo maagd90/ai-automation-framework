@@ -5,17 +5,21 @@ import { getCaseDetail } from '../api/jobs';
 import type { TestStep } from '@ai-agent/shared-types';
 
 function StepRow({ step, index }: { step: TestStep; index: number }) {
-  const parts = [
-    step.action,
-    step.target,
-    step.value ? `= ${step.value}` : '',
-    step.expected ? `(expected: ${step.expected})` : '',
-  ].filter(Boolean);
+  const display = step.description
+    ? step.description
+    : [step.action, step.target, step.value ? `= ${step.value}` : '', step.expected ? `(expected: ${step.expected})` : '']
+        .filter(Boolean)
+        .join(' ');
 
   return (
     <tr className="border-t">
       <td className="px-3 py-2 text-xs text-gray-500">{step.order ?? index + 1}</td>
-      <td className="px-3 py-2 text-sm font-mono">{parts.join(' ')}</td>
+      <td className="px-3 py-2 text-sm font-mono">
+        {display}
+        {step.description && step.action && (
+          <span className="ml-2 text-xs text-blue-600">→ {step.action}</span>
+        )}
+      </td>
     </tr>
   );
 }
@@ -116,6 +120,32 @@ export default function CaseInspectorPage() {
                   ))}
                 </tbody>
               </table>
+            </section>
+          )}
+
+          {tc.repairAttempts && tc.repairAttempts.length > 0 && (
+            <section className="bg-white rounded-xl border shadow-sm overflow-hidden">
+              <h2 className="text-base font-semibold text-gray-800 px-5 pt-5 pb-3">Repair Sidecar</h2>
+              <div className="divide-y">
+                {tc.repairAttempts.map((attempt) => (
+                  <div key={`${attempt.attempt}-${attempt.failureType}`} className="px-5 py-3 text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium">Attempt {attempt.attempt}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{attempt.failureType}</span>
+                      {attempt.patched && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">patched</span>
+                      )}
+                    </div>
+                    <p className="text-gray-700">{attempt.suggestion}</p>
+                    {attempt.diff && (
+                      <p className="mt-1 text-xs font-mono text-gray-500">{attempt.diff}</p>
+                    )}
+                    {attempt.filesChanged.length > 0 && (
+                      <p className="mt-1 text-xs text-gray-500">Files: {attempt.filesChanged.join(', ')}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </section>
           )}
 

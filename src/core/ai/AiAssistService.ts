@@ -95,12 +95,14 @@ export class AiAssistService {
   private readonly provider: IAiProvider;
   private readonly useParsing: boolean;
   private readonly useNaming: boolean;
+  private readonly useFailureAnalysis: boolean;
   readonly usage = new AiUsageTracker();
 
   constructor() {
     this.provider = AiProviderFactory.fromEnv();
     this.useParsing = process.env.AI_USE_FOR_PARSING === 'true';
     this.useNaming = process.env.AI_USE_FOR_NAMING === 'true';
+    this.useFailureAnalysis = process.env.AI_USE_FOR_FAILURE_ANALYSIS === 'true';
   }
 
   async suggestTargetMapping(
@@ -125,5 +127,47 @@ export class AiAssistService {
     });
     this.usage.record('naming', response.provider, response.model);
     return response.text.trim().replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  async inferStepIntent(description: string): Promise<{ action: string; target?: string; value?: string } | undefined> {
+    if (!this.useParsing || this.provider.name === 'none') return undefined;
+    const response = await this.provider.complete({
+      prompt: `Parse this QA test step into JSON with action, target, value (optional).
+Allowed actions: enter, click, select, check, uncheck, verifyText, verifyVisible, navigate.
+Step: "${description}"
+Reply with ONLY JSON.`,
+      maxTokens: 128,
+    });
+    this.usage.record('parsing', response.provider, response.model);
+    try {
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return undefined;
+      return JSON.parse(jsonMatch[0]) as { action: string; target?: string; value?: string };
+    } catch {
+      return undefined;
+    }
+  }
+
+  async analyzeFailure(params: {
+    errorMessage: string;
+    testCaseId: string;
+    domCandidates?: string[];
+  }): Promise<{ failureType: string; suggestion: string; confidence: number } | undefined> {
+    if (!this.useFailureAnalysis || this.provider.name === 'none') return undefined;
+    const response = await this.provider.complete({
+      prompt: `Analyze Playwright failure for ${params.testCaseId}.
+Error: ${params.errorMessage}
+DOM: ${(params.domCandidates ?? []).slice(0, 20).join(', ')}
+Reply JSON: {"failureType":"locator|assertion|navigation|timing","suggestion":"...","confidence":0.0-1.0}`,
+      maxTokens: 256,
+    });
+    this.usage.record('failureAnalysis', response.provider, response.model);
+    try {
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return undefined;
+      return JSON.parse(jsonMatch[0]) as { failureType: string; suggestion: string; confidence: number };
+    } catch {
+      return undefined;
+    }
   }
 }

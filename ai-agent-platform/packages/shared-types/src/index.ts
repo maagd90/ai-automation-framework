@@ -29,6 +29,8 @@ export interface TestStep {
   target?: string;
   value?: string;
   expected?: string;
+  /** Original natural-language step text when action was inferred */
+  description?: string;
 }
 
 export interface TestCase {
@@ -100,6 +102,15 @@ export interface StepResult {
   error?: string;
 }
 
+export interface RepairAttempt {
+  attempt: number;
+  failureType: string;
+  suggestion: string;
+  patched: boolean;
+  filesChanged: string[];
+  diff?: string;
+}
+
 export interface TestCaseResult {
   id: string;
   name: string;
@@ -112,6 +123,7 @@ export interface TestCaseResult {
   traceUrl?: string;
   inputSteps?: TestStep[];
   steps: StepResult[];
+  repairAttempts?: RepairAttempt[];
 }
 
 export interface BatchReport {

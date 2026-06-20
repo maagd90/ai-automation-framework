@@ -1,13 +1,14 @@
 import fs from 'fs';
 import path from 'path';
-import type { TestCaseBatch } from '@ai-agent/shared-types';
-import { TestCaseParserFactory, TestCaseBatchValidator } from '@ai-agent/agent-core';
+import type { TestCaseBatch, TestStep } from '@ai-agent/shared-types';
+import { TestCaseParserFactory, TestCaseBatchValidator, batchNormalizer } from '@ai-agent/agent-core';
 import type { ValidationError } from '@ai-agent/agent-core';
 
 export interface UploadValidationResult {
   valid: boolean;
   errors: ValidationError[];
   batch?: TestCaseBatch;
+  normalizationWarnings?: Array<{ field: string; message: string }>;
 }
 
 /**
@@ -33,13 +34,15 @@ export function validateUploadedTestCase(filePath: string): UploadValidationResu
     }
   }
 
+  const { batch: normalized, warnings } = batchNormalizer.normalizeBatchSync(batch);
+
   const validator = new TestCaseBatchValidator();
-  const result = validator.validate(batch);
+  const result = validator.validate(normalized);
   if (!result.valid) {
     return { valid: false, errors: result.errors };
   }
 
-  return { valid: true, errors: [], batch };
+  return { valid: true, errors: [], batch: normalized, normalizationWarnings: warnings };
 }
 
 function validateJsonSchema(content: string): ValidationError[] {
