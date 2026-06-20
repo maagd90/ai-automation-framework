@@ -1,83 +1,109 @@
 # AI Agent Platform
 
-A production-ready web UI + REST API wrapper for the AI QA Agent system.
+Web UI and REST API for batch JSON test automation — upload test cases, generate merged Playwright projects, optionally execute tests, and download reports.
 
 ## Architecture
 
 ```
 ai-agent-platform/
 ├── apps/
-│   ├── agent-ui/   React + TypeScript + Vite + Tailwind frontend
-│   └── agent-api/  Node.js + Express + TypeScript REST API
+│   ├── agent-ui/              React + Vite + Tailwind dashboard
+│   └── agent-api/             Express API, batch pipeline, merge
 └── packages/
-    └── shared-types/  Shared TypeScript interfaces
+    ├── shared-types/          Job, batch, and report interfaces
+    ├── agent-core/            Parsers, validators, ScreenUrlUtils
+    └── playwright-mcp-adapter/ Playwright MCP session helper
 ```
 
-## Prerequisites
+The API invokes the **root CLI** (`../dist/cli/index.js`) for per-test-case codegen. Build the root project first:
 
-- Node.js 18+
-- The AI agent core must be built: run `npm run build` from the **repo root** first
+```bash
+cd .. && npm install && npm run build
+```
 
-## Quick Start
-
-### 1. Install dependencies
+## Quick start
 
 ```bash
 cd ai-agent-platform
 npm install
+npm run build
+
+# Terminal 1
+npm run dev:api    # http://localhost:3001
+
+# Terminal 2
+npm run dev:ui     # http://localhost:5173
 ```
 
-### 2. Build shared types
+## UI workflow
 
-```bash
-npm run build:types
+1. Upload a batch JSON file (or `.txt` / `.feature`)
+2. Optionally enter a fallback URL (not needed if cases include `navigate` steps)
+3. Choose **Generate only** or **Generate + execute**
+4. Configure auto-scale, parallel agents, retries, and evidence capture
+5. Monitor live logs on the job page
+6. View results: pass-rate bar, per-case table with input steps, Case Inspector drill-down
+7. Download the generated framework ZIP and JSON report
+
+Sample batches: `../examples/testcases/` and `apps/agent-ui/public/samples/`.
+
+## Batch pipeline
+
+```
+Upload → Validate → Split → Parallel codegen → ScreenAwareMerger → Quality gates → (Execute) → Report
 ```
 
-### 3. Start the API server
+Key services in `apps/agent-api/src/services/batch/`:
 
-```bash
-npm run dev:api
-# Runs on http://localhost:3001
-```
+| Service | Role |
+|---------|------|
+| `AgentScaler` | Auto-scale parallel workers from load + resources |
+| `ScreenAwareMerger` | Dedupe POMs by screen URL, emit BasePage + fixtures |
+| `MergeValidationService` | tsc, Playwright list, OOP lint gates |
+| `BatchJobManager` | Orchestrates the full pipeline |
+| `JobQueue` | In-process queue, or BullMQ when `REDIS_URL` is set |
 
-### 4. Start the UI (separate terminal)
-
-```bash
-npm run dev:ui
-# Runs on http://localhost:3000
-```
-
-Open http://localhost:3000 in your browser.
-
-## API Reference
+## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/jobs | Create a new job (multipart/form-data) |
-| GET | /api/jobs/:jobId/status | Get job status |
-| GET | /api/jobs/:jobId/logs | Get job logs |
-| GET | /api/jobs/:jobId/report | Get execution report |
-| GET | /api/jobs/:jobId/download | Download artifacts as ZIP |
+| `POST` | `/api/jobs` | Create job |
+| `GET` | `/api/jobs/:jobId/status` | Status + progress |
+| `GET` | `/api/jobs/:jobId/logs` | Logs |
+| `GET` | `/api/jobs/:jobId/stream` | SSE log stream |
+| `GET` | `/api/jobs/:jobId/report` | Batch report |
+| `GET` | `/api/jobs/:jobId/cases/:testCaseId` | Case Inspector data |
+| `GET` | `/api/jobs/:jobId/download` | Artifacts ZIP |
+| `DELETE` | `/api/jobs/:jobId` | Cancel job |
 
-## UI Flow
+## Environment variables
 
-1. Upload test case file (.txt, .json, .feature)
-2. Enter target application URL
-3. Select framework (Playwright TypeScript)
-4. Choose headless/headed mode
-5. Click **Generate Framework**
-6. Monitor job progress with live log streaming
-7. View report and download generated artifacts
+| Variable | Description |
+|----------|-------------|
+| `PORT` | API port (default `3001`) |
+| `JOBS_DIR` | Job storage directory (default `/tmp/jobs`) |
+| `REDIS_URL` | BullMQ queue (optional) |
+| `MAX_PARALLEL_AGENTS` | Auto-scale ceiling (default `20`) |
+| `API_KEY` | Require `x-api-key` when set |
+| `ALLOWED_ORIGINS` | CORS origins (comma-separated) |
 
-## Security
+## Docker
 
-- File types restricted to .txt, .json, .feature
-- Max upload size: 5 MB
-- File paths sanitized
-- Agent internals not exposed to UI
-- Input validation on all fields
+```bash
+docker compose up --build
+```
 
-## Phase 1 limitations
+Services: `agent-api` (3001), `agent-ui` (3000), Postgres, Redis, MinIO.
 
-- Jobs are stored in memory only in Phase 1.
-- Job history, logs, and status are lost when the API process restarts.
+## Build scripts
+
+```bash
+npm run build          # Build all workspaces
+npm run build:types    # shared-types only
+npm run build:core     # agent-core only
+npm run build:api      # agent-api only
+npm run build:ui       # agent-ui only
+npm run start:api      # Production API
+```
+
+See the [root README](../README.md) for JSON format, CLI usage, and full feature documentation.
