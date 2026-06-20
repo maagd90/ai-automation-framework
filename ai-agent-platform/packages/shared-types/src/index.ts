@@ -55,6 +55,7 @@ export interface ExecutionConfig {
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
+  autoScale?: boolean;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
@@ -109,6 +110,7 @@ export interface TestCaseResult {
   error?: string;
   screenshotUrl?: string;
   traceUrl?: string;
+  inputSteps?: TestStep[];
   steps: StepResult[];
 }
 
@@ -119,6 +121,7 @@ export interface BatchReport {
   failed: number;
   durationMs: number;
   parallelAgents: number;
+  batchName?: string;
   aiUsage?: AiUsageSummary;
   summary: string;
   testCaseResults?: TestCaseResult[];
@@ -139,6 +142,7 @@ export interface Job {
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
+  autoScale?: boolean;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;

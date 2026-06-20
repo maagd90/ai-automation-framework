@@ -1,0 +1,35 @@
+{
+  "batchName": "Demo App Login Tests",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Login with valid credentials",
+      "priority": "high",
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "file:///workspace/examples/demo-app/login.html" },
+        { "order": 2, "action": "enter", "target": "Email", "value": "admin@test.com" },
+        { "order": 3, "action": "enter", "target": "Password", "value": "Password123" },
+        { "order": 4, "action": "click", "target": "Login" },
+        { "order": 5, "action": "verifyVisible", "target": "dashboard" }
+      ],
+      "expectedResults": [
+        "Dashboard should be visible after successful login"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "name": "Login with invalid password",
+      "priority": "medium",
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "file:///workspace/examples/demo-app/login.html" },
+        { "order": 2, "action": "enter", "target": "Email", "value": "admin@test.com" },
+        { "order": 3, "action": "enter", "target": "Password", "value": "wrong" },
+        { "order": 4, "action": "click", "target": "Login" },
+        { "order": 5, "action": "verifyVisible", "target": "error" }
+      ],
+      "expectedResults": [
+        "Error message should be displayed"
+      ]
+    }
+  ]
+}

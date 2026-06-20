@@ -51,7 +51,7 @@ export default function ResultPage() {
         </div>
       )}
 
-      {reportQuery.data && <ReportSummary report={reportQuery.data} />}
+      {reportQuery.data && <ReportSummary report={reportQuery.data} jobId={jobId} />}
 
       {jobStatus === 'completed' && (
         <div className="flex flex-wrap gap-3">

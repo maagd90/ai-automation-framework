@@ -34,9 +34,91 @@ jobs:
         working-directory: ai-agent-platform
         run: npm run build:types && npm run build -w @ai-agent/agent-core && npm run build -w @ai-agent/agent-api
 
-      - name: Validate SauceDemo batch JSON
-        run: node -e "JSON.parse(require('fs').readFileSync('examples/testcases/saucedemo-batch.json','utf8')); console.log('SauceDemo batch JSON valid')"
-
       - name: Build agent-ui
         working-directory: ai-agent-platform
         run: npm run build -w @ai-agent/agent-ui
+
+  validate-batch-json-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        batch:
+          - examples/testcases/saucedemo-batch.json
+          - examples/testcases/demo-app-batch.json
+          - examples/testcases/saas-login-batch.json
+          - examples/testcases/login-test.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate batch JSON structure
+        run: |
+          node -e "
+            const fs = require('fs');
+            const batch = JSON.parse(fs.readFileSync('${{ matrix.batch }}', 'utf8'));
+            if (!batch.batchName || !Array.isArray(batch.testCases) || batch.testCases.length === 0) {
+              throw new Error('Invalid batch: missing batchName or testCases');
+            }
+            for (const tc of batch.testCases) {
+              if (!tc.id || !tc.name || !Array.isArray(tc.steps) || tc.steps.length === 0) {
+                throw new Error('Invalid test case in ' + '${{ matrix.batch }}');
+              }
+              const hasNavigate = tc.steps.some(s => s.action === 'navigate' && s.target);
+              if (!hasNavigate) {
+                console.warn('Warning: ' + tc.id + ' has no navigate step — job URL required');
+              }
+            }
+            console.log('Valid: ${{ matrix.batch }} (' + batch.testCases.length + ' cases)');
+          "
+
+      - name: Validate navigate URLs where present
+        run: |
+          node -e "
+            const fs = require('fs');
+            const batch = JSON.parse(fs.readFileSync('${{ matrix.batch }}', 'utf8'));
+            for (const tc of batch.testCases) {
+              for (const step of tc.steps) {
+                if (step.action === 'navigate' && step.target) {
+                  if (!step.target.startsWith('file://')) {
+                    new URL(step.target);
+                  }
+                }
+              }
+            }
+            console.log('URLs valid in ${{ matrix.batch }}');
+          "
+
+  screen-url-utils:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install platform dependencies
+        working-directory: ai-agent-platform
+        run: npm ci
+
+      - name: Build agent-core
+        working-directory: ai-agent-platform
+        run: npm run build -w @ai-agent/agent-core
+
+      - name: Test ScreenUrlUtils fingerprinting
+        working-directory: ai-agent-platform
+        run: |
+          node -e "
+            const { parseScreenFingerprint, screenToClassName, deriveUrlFromSteps } = require('./packages/agent-core/dist/utils/ScreenUrlUtils.js');
+            const fp = parseScreenFingerprint('https://app.acme.com/login');
+            if (fp.host !== 'app-acme-com' || !fp.key.includes('acme.com')) throw new Error('fingerprint failed');
+            const cls = screenToClassName('https://www.saucedemo.com');
+            if (!cls || cls.length < 3) throw new Error('class name: ' + cls);
+            const url = deriveUrlFromSteps([{ order: 1, action: 'navigate', target: 'https://example.com' }]);
+            if (url !== 'https://example.com') throw new Error('deriveUrl failed');
+            console.log('ScreenUrlUtils OK');
+          "

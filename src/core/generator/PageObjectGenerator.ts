@@ -14,15 +14,17 @@ export class PageObjectGenerator {
     const outPath = path.join(outputDir, 'pages', `${className}.ts`);
 
     const content = `import { type Page, expect } from '@playwright/test';
+import { BasePage } from './BasePage.js';
 
-export class ${className} {
-  constructor(private readonly page: Page) {}
+export class ${className} extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
 
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(url)});
-    await this.page.waitForLoadState('networkidle');
+    await super.goto(${this.renderStringLiteral(url)});
   }
 }
 `;

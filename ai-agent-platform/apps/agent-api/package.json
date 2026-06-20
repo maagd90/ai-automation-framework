@@ -11,6 +11,7 @@
     "@ai-agent/agent-core": "*",
     "@ai-agent/shared-types": "*",
     "archiver": "^6.0.1",
+    "bullmq": "^5.34.5",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",

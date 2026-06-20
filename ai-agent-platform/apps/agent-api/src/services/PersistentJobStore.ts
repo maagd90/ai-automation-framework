@@ -58,6 +58,7 @@ export class PersistentJobStore {
           executionMode: raw.executionMode,
           headless: raw.headless,
           parallelAgents: raw.parallelAgents,
+          autoScale: raw.autoScale,
           retryCount: raw.retryCount,
           screenshotOnFailure: raw.screenshotOnFailure,
           traceOnFailure: raw.traceOnFailure,

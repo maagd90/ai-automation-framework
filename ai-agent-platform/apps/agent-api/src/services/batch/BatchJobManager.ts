@@ -7,13 +7,19 @@ import { JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../PersistentJobStore';
 import { AgentPoolManager } from './AgentPoolManager';
-import { ProjectMerger } from './ProjectMerger';
+import { ScreenAwareMerger } from './ScreenAwareMerger';
+import { MergeValidationService } from './MergeValidationService';
 import { BatchReportService } from './BatchReportService';
 import { PlaywrightReportParser } from './PlaywrightReportParser';
+import { agentScaler } from './AgentScaler';
+
+const INSTALL_TIMEOUT_MS = 300_000;
+const TEST_TIMEOUT_MS = 600_000;
 
 export class BatchJobManager {
   private readonly pool = new AgentPoolManager();
-  private readonly merger = new ProjectMerger();
+  private readonly merger = new ScreenAwareMerger();
+  private readonly validator = new MergeValidationService();
   private readonly reporter = new BatchReportService();
   private readonly playwrightParser = new PlaywrightReportParser();
 
@@ -33,82 +39,117 @@ export class BatchJobManager {
       log(`Job ${job.jobId} started`);
       log(`Target URL: ${job.url}`);
       log(`Execution mode: ${job.executionMode}`);
-      log(`Parallel agents: ${job.parallelAgents}`);
-      jobStore.set(job);
 
-      // ── Parse ─────────────────────────────────────────────────────────────
-      log('Parsing test case file…');
       const content = fs.readFileSync(job.inputFile, 'utf8');
       const parser = new TestCaseParserFactory();
       const batch = parser.parse(job.inputFile, content);
 
-      // ── Validate ──────────────────────────────────────────────────────────
-      const validator = new TestCaseBatchValidator();
-      const validation = validator.validate(batch);
+      const validation = new TestCaseBatchValidator().validate(batch);
       if (!validation.valid) {
-        const msg = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
-        throw new Error(`Batch validation failed: ${msg}`);
+        throw new Error(
+          `Batch validation failed: ${validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ')}`,
+        );
       }
 
-      log(`Parsed ${batch.testCases.length} test case(s) from "${batch.batchName}"`);
+      const scaledAgents = agentScaler.calculate({
+        testCaseCount: batch.testCases.length,
+        manualOverride: job.parallelAgents,
+        autoScale: job.autoScale !== false,
+      });
+      job.parallelAgents = scaledAgents;
+      log(`Auto-scaled to ${scaledAgents} parallel agent(s) for ${batch.testCases.length} test case(s)`);
+      jobStore.set(job);
+
       job.totalCases = batch.testCases.length;
       job.processedCases = 0;
       jobStore.set(job);
 
-      // ── Split ─────────────────────────────────────────────────────────────
       const splitsDir = path.join(JOBS_BASE_DIR, job.jobId, 'splits');
-      const splitter = new TestCaseSplitter();
-      const splits = splitter.split(batch, splitsDir);
+      const splits = new TestCaseSplitter().split(batch, splitsDir);
       log(`Split into ${splits.length} child job file(s)`);
 
-      // ── Execute generation in parallel ────────────────────────────────────
       log(`Generating with ${job.parallelAgents} parallel agent(s)…`);
       const childResults = await this.pool.runAll(job, splits, aiConfig);
 
-      // ── Merge into single project ─────────────────────────────────────────
-      log('Merging generated artifacts into final-project…');
-      const childIds = splits.map((s) => s.childId);
-      const finalDir = this.merger.merge(job, childIds);
-      this.merger.validate(finalDir);
-      job.artifactsPath = finalDir;
-      log(`Final project: ${finalDir}`);
-
-      // ── Optionally run tests ───────────────────────────────────────────────
-      let testRunExitCode = 0;
-      let executionResults;
-      if (job.executionMode === 'generate-and-execute') {
-        log('Execution mode: Generate + Execute — running Playwright tests…');
-        testRunExitCode = await this.runPlaywright(finalDir, log);
-        log(`Playwright exit code: ${testRunExitCode}`);
-        executionResults = this.playwrightParser.parse(
-          path.join(finalDir, 'reports', 'playwright-report.json'),
-          job.jobId,
+      const failedChildren = childResults.filter((r) => r.exitCode !== 0);
+      if (failedChildren.length > 0) {
+        throw new Error(
+          `Generation failed for ${failedChildren.length} test case(s): ${failedChildren.map((r) => r.testCaseId).join(', ')}`,
         );
       }
 
-      const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
+      log('Merging with screen-aware deduplication…');
+      const finalDir = this.merger.merge(job, splits);
+      job.artifactsPath = finalDir;
+      log(`Final project: ${finalDir}`);
 
-      const report = this.reporter.build({
-        startedAt,
-        childResults,
-        parallelAgents: job.parallelAgents,
-        executionMode: job.executionMode,
-        testRunExitCode,
-        aiUsage,
-        executionResults,
-      });
-      job.report = report;
+      log('Running quality gates…');
+      log('Installing dependencies for compile check…');
+      const installForCheck = await this.runCommand(finalDir, ['npm', 'install'], INSTALL_TIMEOUT_MS, log);
+      if (installForCheck !== 0) throw new Error(`npm install failed with exit code ${installForCheck}`);
+
+      const staticValidation = this.validator.validate(finalDir);
+      if (!staticValidation.valid) {
+        throw new Error(`Quality gate failed: ${staticValidation.errors.join('; ')}`);
+      }
+
+      if (job.executionMode === 'generate-and-execute') {
+        log('Installing Playwright browsers…');
+        const pwInstall = await this.runCommand(
+          finalDir,
+          ['npx', 'playwright', 'install', 'chromium'],
+          INSTALL_TIMEOUT_MS,
+          log,
+        );
+        if (pwInstall !== 0) throw new Error(`playwright install failed with exit code ${pwInstall}`);
+
+        const dryRun = this.validator.dryRunPlaywright(finalDir);
+        if (!dryRun.valid) {
+          throw new Error(`Playwright dry-run failed: ${dryRun.errors.join('; ')}`);
+        }
+
+        log('Running Playwright tests…');
+        const testRunExitCode = await this.runCommand(finalDir, ['npm', 'test'], TEST_TIMEOUT_MS, log);
+        log(`Playwright exit code: ${testRunExitCode}`);
+
+        const executionResults = this.playwrightParser.parse(
+          path.join(finalDir, 'reports', 'playwright-report.json'),
+          job.jobId,
+        );
+
+        const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
+        job.report = this.reporter.build({
+          startedAt,
+          childResults,
+          parallelAgents: job.parallelAgents,
+          executionMode: job.executionMode,
+          testRunExitCode,
+          aiUsage,
+          executionResults,
+          batchName: batch.batchName,
+        });
+      } else {
+        const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
+        job.report = this.reporter.build({
+          startedAt,
+          childResults,
+          parallelAgents: job.parallelAgents,
+          executionMode: job.executionMode,
+          aiUsage,
+          batchName: batch.batchName,
+        });
+      }
 
       const reportPath = path.join(JOBS_BASE_DIR, job.jobId, 'report.json');
-      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
       fs.mkdirSync(path.join(finalDir, 'reports'), { recursive: true });
       fs.writeFileSync(
         path.join(finalDir, 'reports', 'batch-execution-report.json'),
-        JSON.stringify(report, null, 2),
+        JSON.stringify(job.report, null, 2),
       );
 
-      job.setStatus(report.status === 'failed' ? 'failed' : 'completed');
-      log(`Job finished — ${report.status.toUpperCase()} (${report.passed}/${report.totalCases} passed)`);
+      job.setStatus(job.report.status === 'failed' ? 'failed' : 'completed');
+      log(`Job finished — ${job.report.status.toUpperCase()} (${job.report.passed}/${job.report.totalCases} passed)`);
       jobStore.set(job);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -124,82 +165,60 @@ export class BatchJobManager {
         summary: `Job failed: ${msg}`,
       };
       log(`ERROR: ${msg}`);
-      const reportPath = path.join(JOBS_BASE_DIR, job.jobId, 'report.json');
-      fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
+      fs.writeFileSync(path.join(JOBS_BASE_DIR, job.jobId, 'report.json'), JSON.stringify(job.report, null, 2));
       jobStore.set(job);
     }
   }
 
-  /** Installs generated-project deps and then runs `npm test`, returning the final exit code. */
-  private runPlaywright(projectDir: string, log: (msg: string) => void): Promise<number> {
+  private runCommand(
+    cwd: string,
+    cmd: string[],
+    timeoutMs: number,
+    log: (msg: string) => void,
+  ): Promise<number> {
     return new Promise<number>((resolve) => {
-      const child = spawn('npm', ['install'], {
-        cwd: projectDir,
+      const child = spawn(cmd[0], cmd.slice(1), {
+        cwd,
         shell: false,
-        env: {
-          ...process.env,
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
-        },
+        env: { ...process.env, CI: '1' },
       });
+
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        resolve(1);
+      }, timeoutMs);
 
       child.stdout.on('data', (data: Buffer) => {
-        data.toString().split('\n').filter(Boolean).forEach((line) => log(`[INSTALL] ${line}`));
+        data.toString().split('\n').filter(Boolean).forEach((line) => log(line));
       });
-
       child.stderr.on('data', (data: Buffer) => {
-        data
-          .toString()
-          .split('\n')
-          .filter(Boolean)
-          .forEach((l) => log(`[INSTALL STDERR] ${l}`));
+        data.toString().split('\n').filter(Boolean).forEach((l) => log(`[STDERR] ${l}`));
       });
-
       child.on('close', (code) => {
-        if ((code ?? 1) !== 0) {
-          resolve(code ?? 1);
-          return;
-        }
-
-        const testChild = spawn('npm', ['test'], {
-          cwd: projectDir,
-          shell: false,
-          env: {
-            ...process.env,
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
-          },
-        });
-
-        testChild.stdout.on('data', (data: Buffer) => {
-          data.toString().split('\n').filter(Boolean).forEach(log);
-        });
-
-        testChild.stderr.on('data', (data: Buffer) => {
-          data
-            .toString()
-            .split('\n')
-            .filter(Boolean)
-            .forEach((l) => log(`[TEST STDERR] ${l}`));
-        });
-
-        testChild.on('close', (testCode) => resolve(testCode ?? 1));
-        testChild.on('error', () => resolve(1));
+        clearTimeout(timer);
+        resolve(code ?? 1);
       });
-      child.on('error', () => resolve(1));
+      child.on('error', () => {
+        clearTimeout(timer);
+        resolve(1);
+      });
     });
   }
 
-  private buildAiUsageSummary(aiConfig: AiConfig | undefined, childResults: Array<{ aiUsage?: AiUsageSummary }>): AiUsageSummary {
+  private buildAiUsageSummary(
+    aiConfig: AiConfig | undefined,
+    childResults: Array<{ aiUsage?: AiUsageSummary }>,
+  ): AiUsageSummary {
     const childUsage = childResults
-      .map((result) => result.aiUsage)
-      .filter((usage): usage is AiUsageSummary => Boolean(usage));
-
+      .map((r) => r.aiUsage)
+      .filter((u): u is AiUsageSummary => Boolean(u));
     return {
       provider: childUsage[0]?.provider ?? aiConfig?.provider ?? 'none',
       model: childUsage[0]?.model ?? aiConfig?.model,
-      calls: childUsage.reduce((sum, usage) => sum + usage.calls, 0),
-      parsingCalls: childUsage.reduce((sum, usage) => sum + usage.parsingCalls, 0),
-      namingCalls: childUsage.reduce((sum, usage) => sum + usage.namingCalls, 0),
-      failureAnalysisCalls: childUsage.reduce((sum, usage) => sum + usage.failureAnalysisCalls, 0),
+      calls: childUsage.reduce((s, u) => s + u.calls, 0),
+      parsingCalls: childUsage.reduce((s, u) => s + u.parsingCalls, 0),
+      namingCalls: childUsage.reduce((s, u) => s + u.namingCalls, 0),
+      failureAnalysisCalls: childUsage.reduce((s, u) => s + u.failureAnalysisCalls, 0),
     };
   }
 }

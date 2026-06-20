@@ -7,6 +7,8 @@ interface ExecutionConfigPanelProps {
   onHeadlessChange: (v: boolean) => void;
   parallelAgents: number;
   onParallelAgentsChange: (v: number) => void;
+  autoScale: boolean;
+  onAutoScaleChange: (v: boolean) => void;
   retryCount: number;
   onRetryCountChange: (v: number) => void;
   screenshotOnFailure: boolean;
@@ -27,6 +29,8 @@ export default function ExecutionConfigPanel({
   onHeadlessChange,
   parallelAgents,
   onParallelAgentsChange,
+  autoScale,
+  onAutoScaleChange,
   retryCount,
   onRetryCountChange,
   screenshotOnFailure,
@@ -64,20 +68,38 @@ export default function ExecutionConfigPanel({
         </div>
       </div>
 
+      {/* Auto-scale */}
+      <div>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoScale}
+            onChange={(e) => onAutoScaleChange(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          <span className="text-sm text-gray-700">
+            Auto-scale agents <span className="text-gray-400">(adjust concurrency from test count and system resources)</span>
+          </span>
+        </label>
+      </div>
+
       {/* Parallel Agents */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Parallel Agents</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Parallel Agents {autoScale && <span className="text-gray-400 font-normal">(max when auto-scale is on)</span>}
+        </label>
         <div className="flex gap-2 flex-wrap">
           {PARALLEL_OPTIONS.map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => onParallelAgentsChange(n)}
+              disabled={autoScale}
               className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 parallelAgents === n
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:border-brand-400'
-              }`}
+              } ${autoScale ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {n === 1 ? '1 (sequential)' : n}
             </button>

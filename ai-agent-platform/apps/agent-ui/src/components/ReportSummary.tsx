@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom';
 import type { JobReportResponse, TestCaseResult } from '@ai-agent/shared-types';
 import { CheckCircleIcon, XCircleIcon, AlertCircleIcon, ClockIcon } from 'lucide-react';
 
 interface ReportSummaryProps {
   report: JobReportResponse;
+  jobId?: string;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -32,11 +34,31 @@ function PriorityBadge({ priority }: { priority?: string }) {
   );
 }
 
-function TestCaseRow({ result }: { result: TestCaseResult }) {
+function formatInputSteps(result: TestCaseResult): string {
+  if (!result.inputSteps?.length) return '—';
+  return result.inputSteps
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((s) => `${s.order}. ${s.action}${s.target ? ` → ${s.target}` : ''}${s.value ? ` (${s.value})` : ''}`)
+    .join('; ');
+}
+
+function TestCaseRow({ result, jobId }: { result: TestCaseResult; jobId?: string }) {
   return (
     <tr className="border-t">
-      <td className="px-3 py-2 font-mono text-xs">{result.id}</td>
+      <td className="px-3 py-2 font-mono text-xs">
+        {jobId ? (
+          <Link to={`/jobs/${jobId}/cases/${result.id}`} className="text-brand-600 hover:underline">
+            {result.id}
+          </Link>
+        ) : (
+          result.id
+        )}
+      </td>
       <td className="px-3 py-2 text-sm">{result.name}</td>
+      <td className="px-3 py-2 text-xs text-gray-600 max-w-xs truncate" title={formatInputSteps(result)}>
+        {formatInputSteps(result)}
+      </td>
       <td className="px-3 py-2"><PriorityBadge priority={result.priority} /></td>
       <td className="px-3 py-2"><StatusBadge status={result.generationStatus} /></td>
       <td className="px-3 py-2">
@@ -55,8 +77,9 @@ function TestCaseRow({ result }: { result: TestCaseResult }) {
   );
 }
 
-export default function ReportSummary({ report }: ReportSummaryProps) {
+export default function ReportSummary({ report, jobId }: ReportSummaryProps) {
   const { status } = report;
+  const passRate = report.totalCases > 0 ? Math.round((report.passed / report.totalCases) * 100) : 0;
 
   const styleMap: Record<typeof status, {
     border: string;
@@ -74,10 +97,13 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
 
   return (
     <div className={`rounded-lg border-2 p-5 ${borderClass}`}>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-1">
         <Icon className={`w-7 h-7 ${iconClass}`} />
         <h3 className={`text-lg font-bold ${titleClass}`}>{title}</h3>
       </div>
+      {report.batchName && (
+        <p className="text-sm text-gray-600 mb-4 ml-10">{report.batchName}</p>
+      )}
 
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-white rounded-lg border px-3 py-2 text-center">
@@ -91,6 +117,19 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
         <div className="bg-white rounded-lg border px-3 py-2 text-center">
           <p className="text-xs text-gray-500 mb-0.5">Failed</p>
           <p className="text-xl font-bold text-red-600">{report.failed}</p>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <div className="flex justify-between text-xs text-gray-600 mb-1">
+          <span>Pass rate</span>
+          <span className="font-semibold">{passRate}%</span>
+        </div>
+        <div className="h-2.5 bg-white rounded-full border overflow-hidden">
+          <div
+            className={`h-full transition-all ${passRate === 100 ? 'bg-green-500' : passRate === 0 ? 'bg-red-500' : 'bg-yellow-500'}`}
+            style={{ width: `${passRate}%` }}
+          />
         </div>
       </div>
 
@@ -118,6 +157,7 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
               <tr>
                 <th className="px-3 py-2">ID</th>
                 <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Steps (Input)</th>
                 <th className="px-3 py-2">Priority</th>
                 <th className="px-3 py-2">Generated</th>
                 <th className="px-3 py-2">Executed</th>
@@ -127,7 +167,7 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
             </thead>
             <tbody>
               {report.testCaseResults.map((result) => (
-                <TestCaseRow key={result.id} result={result} />
+                <TestCaseRow key={result.id} result={result} jobId={jobId} />
               ))}
             </tbody>
           </table>

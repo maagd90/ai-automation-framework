@@ -16,6 +16,7 @@ export class BatchReportService {
     testRunExitCode?: number;
     aiUsage?: AiUsageSummary;
     executionResults?: TestCaseResult[];
+    batchName?: string;
   }): BatchReport {
     const {
       startedAt,
@@ -25,6 +26,7 @@ export class BatchReportService {
       testRunExitCode,
       aiUsage,
       executionResults,
+      batchName,
     } = params;
     const totalCases = childResults.length;
     const generationPassed = childResults.filter((r) => r.exitCode === 0).length;
@@ -81,6 +83,7 @@ export class BatchReportService {
         : generationFailed,
       durationMs,
       parallelAgents,
+      batchName,
       aiUsage,
       summary,
       testCaseResults,
@@ -109,6 +112,7 @@ export class BatchReportService {
         error: execution?.error ?? (child.exitCode !== 0 ? 'Generation failed' : undefined),
         screenshotUrl: execution?.screenshotUrl,
         traceUrl: execution?.traceUrl,
+        inputSteps: child.inputSteps,
         steps: execution?.steps ?? [],
       };
     });

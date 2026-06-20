@@ -3,6 +3,7 @@ import type {
   JobStatusResponse,
   JobLogsResponse,
   JobReportResponse,
+  TestCaseResult,
   AiProvider,
   ExecutionMode,
 } from '@ai-agent/shared-types';
@@ -15,6 +16,7 @@ export interface CreateJobParams {
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
+  autoScale: boolean;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
@@ -28,6 +30,12 @@ export interface CreateJobParams {
   usedForFailureAnalysis?: boolean;
 }
 
+export interface CaseDetailResponse {
+  jobId: string;
+  batchName?: string;
+  testCase: TestCaseResult;
+}
+
 export async function createJob(params: CreateJobParams): Promise<CreateJobResponse> {
   const formData = new FormData();
   formData.append('file', params.file);
@@ -36,6 +44,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobRespo
   formData.append('executionMode', params.executionMode);
   formData.append('headless', String(params.headless));
   formData.append('parallelAgents', String(params.parallelAgents));
+  formData.append('autoScale', String(params.autoScale));
   formData.append('retryCount', String(params.retryCount));
   formData.append('screenshotOnFailure', String(params.screenshotOnFailure));
   formData.append('traceOnFailure', String(params.traceOnFailure));
@@ -66,6 +75,11 @@ export async function getJobLogs(jobId: string): Promise<JobLogsResponse> {
 
 export async function getJobReport(jobId: string): Promise<JobReportResponse> {
   const { data } = await apiClient.get<JobReportResponse>(`/jobs/${jobId}/report`);
+  return data;
+}
+
+export async function getCaseDetail(jobId: string, testCaseId: string): Promise<CaseDetailResponse> {
+  const { data } = await apiClient.get<CaseDetailResponse>(`/jobs/${jobId}/cases/${testCaseId}`);
   return data;
 }
 

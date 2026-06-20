@@ -66,6 +66,7 @@ export class JobsController {
       executionMode,
       headless,
       parallelAgents,
+      autoScale,
       retryCount,
       screenshotOnFailure,
       traceOnFailure,
@@ -120,6 +121,7 @@ export class JobsController {
       executionMode,
       headless,
       parallelAgents,
+      autoScale,
       retryCount,
       screenshotOnFailure,
       traceOnFailure,
@@ -143,6 +145,11 @@ export class JobsController {
             },
           }
         : undefined;
+
+    if (aiConfig) {
+      const aiConfigPath = path.join(JOBS_BASE_DIR_RESOLVED, jobId, 'ai-config.json');
+      fs.writeFileSync(aiConfigPath, JSON.stringify(aiConfig));
+    }
 
     // Run asynchronously via job queue
     jobQueue.enqueue(job, aiConfig);
@@ -184,6 +191,29 @@ export class JobsController {
         return;
       }
       res.json(job.report);
+    } catch {
+      res.status(404).json({ error: 'Job not found' });
+    }
+  }
+
+  getCaseDetail(req: Request, res: Response): void {
+    const { jobId, testCaseId } = req.params as { jobId: string; testCaseId: string };
+    try {
+      const job = jobStore.getOrThrow(jobId);
+      if (!job.report?.testCaseResults) {
+        res.status(404).json({ error: 'Case results not available yet' });
+        return;
+      }
+      const testCase = job.report.testCaseResults.find((tc) => tc.id === testCaseId);
+      if (!testCase) {
+        res.status(404).json({ error: 'Test case not found in report' });
+        return;
+      }
+      res.json({
+        jobId,
+        batchName: job.report.batchName,
+        testCase,
+      });
     } catch {
       res.status(404).json({ error: 'Job not found' });
     }

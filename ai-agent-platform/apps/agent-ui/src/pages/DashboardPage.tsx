@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
   const [headless, setHeadless] = useState(true);
   const [parallelAgents, setParallelAgents] = useState(2);
+  const [autoScale, setAutoScale] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [screenshotOnFailure, setScreenshotOnFailure] = useState(true);
   const [traceOnFailure, setTraceOnFailure] = useState(false);
@@ -69,6 +70,7 @@ export default function DashboardPage() {
       executionMode,
       headless,
       parallelAgents,
+      autoScale,
       retryCount,
       screenshotOnFailure,
       traceOnFailure,
@@ -109,7 +111,7 @@ export default function DashboardPage() {
 
           <FrameworkSelector value={framework} onChange={setFramework} />
 
-          <div className="flex gap-3 text-sm">
+          <div className="flex flex-wrap gap-3 text-sm">
             <a
               href="/samples/empty-batch-template.json"
               download="test-case-template.json"
@@ -124,6 +126,13 @@ export default function DashboardPage() {
             >
               Download SauceDemo sample
             </a>
+            <a
+              href="/samples/saas-login-batch.json"
+              download="saas-login-batch.json"
+              className="text-brand-600 hover:underline"
+            >
+              Download SaaS login template
+            </a>
           </div>
         </section>
 
@@ -137,6 +146,8 @@ export default function DashboardPage() {
             onHeadlessChange={setHeadless}
             parallelAgents={parallelAgents}
             onParallelAgentsChange={setParallelAgents}
+            autoScale={autoScale}
+            onAutoScaleChange={setAutoScale}
             retryCount={retryCount}
             onRetryCountChange={setRetryCount}
             screenshotOnFailure={screenshotOnFailure}

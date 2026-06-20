@@ -11,6 +11,7 @@ export class JobEntity implements Job {
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
+  autoScale: boolean;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
@@ -30,6 +31,7 @@ export class JobEntity implements Job {
     executionMode?: ExecutionMode;
     headless?: boolean;
     parallelAgents?: number;
+    autoScale?: boolean;
     retryCount?: number;
     screenshotOnFailure?: boolean;
     traceOnFailure?: boolean;
@@ -45,6 +47,7 @@ export class JobEntity implements Job {
     this.executionMode = params.executionMode ?? 'generate-only';
     this.headless = params.headless ?? true;
     this.parallelAgents = params.parallelAgents ?? 2;
+    this.autoScale = params.autoScale ?? true;
     this.retryCount = params.retryCount ?? 0;
     this.screenshotOnFailure = params.screenshotOnFailure ?? true;
     this.traceOnFailure = params.traceOnFailure ?? false;

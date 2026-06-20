@@ -1,8 +1,9 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
 import fs from 'fs';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
-import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
+import { deriveUrlFromSteps } from '@ai-agent/agent-core';
 import { JobEntity } from '../../domain/Job';
 import { jobStore } from '../PersistentJobStore';
 
@@ -11,6 +12,7 @@ export interface ChildRunResult {
   testCaseId: string;
   testCaseName: string;
   priority?: string;
+  inputSteps?: Array<{ order: number; action: string; target?: string; value?: string; expected?: string }>;
   exitCode: number;
   durationMs: number;
   attempts: number;
@@ -23,7 +25,7 @@ export class ChildJobRunner {
     job: JobEntity,
     childId: string,
     childFilePath: string,
-    testCaseMeta: { id: string; name: string; priority?: string },
+    testCaseMeta: { id: string; name: string; priority?: string; steps?: ChildRunResult['inputSteps'] },
     aiConfig?: AiConfig,
     attempt = 1,
   ): Promise<ChildRunResult> {
@@ -33,13 +35,14 @@ export class ChildJobRunner {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
     fs.mkdirSync(outputDir, { recursive: true });
 
+    const childUrl = this.resolveChildUrl(childFilePath, job.url);
     const started = Date.now();
 
     const args = [
       AGENT_CORE_PATH,
       'generate',
       '--file', childFilePath,
-      '--url', job.url,
+      '--url', childUrl,
       '--output', outputDir,
       '--headless', String(job.headless),
     ];
@@ -87,6 +90,7 @@ export class ChildJobRunner {
           testCaseId: testCaseMeta.id,
           testCaseName: testCaseMeta.name,
           priority: testCaseMeta.priority,
+          inputSteps: testCaseMeta.steps,
           exitCode: code ?? 1,
           durationMs: Date.now() - started,
           attempts: attempt,
@@ -96,6 +100,21 @@ export class ChildJobRunner {
 
       child.on('error', reject);
     });
+  }
+
+  private resolveChildUrl(childFilePath: string, fallbackUrl: string): string {
+    try {
+      const raw = JSON.parse(fs.readFileSync(childFilePath, 'utf8')) as {
+        steps?: Array<{ order: number; action: string; target?: string }>;
+      };
+      if (raw.steps) {
+        const fromSteps = deriveUrlFromSteps(raw.steps);
+        if (fromSteps) return fromSteps;
+      }
+    } catch {
+      // use fallback
+    }
+    return fallbackUrl;
   }
 
   private readAiUsage(aiUsagePath: string): AiUsageSummary | undefined {

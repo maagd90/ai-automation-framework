@@ -41,6 +41,7 @@ export class AgentPoolManager {
               id: split.testCase.id,
               name: split.testCase.name,
               priority: split.testCase.priority,
+              steps: split.testCase.steps,
             },
             aiConfig,
             attempt,
@@ -60,6 +61,6 @@ export class AgentPoolManager {
     const workers = Array.from({ length: concurrency }, () => runNext());
     await Promise.all(workers);
 
-    return results;
+    return results.sort((a, b) => a.childId.localeCompare(b.childId));
   }
 }

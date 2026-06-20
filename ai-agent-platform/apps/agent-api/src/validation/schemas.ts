@@ -14,6 +14,10 @@ export const ExecutionConfigSchema = z.object({
     .transform((v) => Number(v))
     .pipe(z.number().int().min(1).max(10))
     .default(2),
+  autoScale: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(true),
   retryCount: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))
