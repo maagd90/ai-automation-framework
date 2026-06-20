@@ -10,7 +10,8 @@ import { apiClient } from './client';
 
 export interface CreateJobParams {
   file: File;
-  url: string;
+  url?: string;
+  framework: string;
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
@@ -30,7 +31,8 @@ export interface CreateJobParams {
 export async function createJob(params: CreateJobParams): Promise<CreateJobResponse> {
   const formData = new FormData();
   formData.append('file', params.file);
-  formData.append('url', params.url);
+  if (params.url) formData.append('url', params.url);
+  formData.append('framework', params.framework);
   formData.append('executionMode', params.executionMode);
   formData.append('headless', String(params.headless));
   formData.append('parallelAgents', String(params.parallelAgents));

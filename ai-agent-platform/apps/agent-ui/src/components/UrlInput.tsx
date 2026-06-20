@@ -1,13 +1,19 @@
 interface UrlInputProps {
   value: string;
   onChange: (value: string) => void;
+  optional?: boolean;
 }
 
-export default function UrlInput({ value, onChange }: UrlInputProps) {
+export default function UrlInput({ value, onChange, optional }: UrlInputProps) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1">
         Target Application URL
+        {optional ? (
+          <span className="text-gray-400 font-normal"> (optional if JSON has navigate steps)</span>
+        ) : (
+          <span className="text-red-500"> *</span>
+        )}
       </label>
       <input
         type="url"

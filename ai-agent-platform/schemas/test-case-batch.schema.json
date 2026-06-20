@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ai-agent-platform/schemas/test-case-batch.schema.json",
+  "title": "TestCaseBatch",
+  "type": "object",
+  "required": ["batchName", "testCases"],
+  "additionalProperties": false,
+  "properties": {
+    "batchName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "testCases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/testCase" }
+    }
+  },
+  "definitions": {
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "click",
+        "select",
+        "check",
+        "uncheck",
+        "verifyText",
+        "verifyVisible",
+        "navigate"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "testStep": {
+      "type": "object",
+      "required": ["order", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "order": { "type": "integer", "minimum": 1 },
+        "action": { "$ref": "#/definitions/actionType" },
+        "target": { "type": "string" },
+        "value": { "type": "string" },
+        "expected": { "type": "string" }
+      }
+    },
+    "testCase": {
+      "type": "object",
+      "required": ["id", "name", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "priority": { "$ref": "#/definitions/priority" },
+        "preconditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/testStep" }
+        },
+        "expectedResults": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

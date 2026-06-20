@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { jobsRouter } from './routes/jobs.router';
+import { authMiddleware } from './middleware/auth';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -32,10 +33,14 @@ const apiLimiter = rateLimit({
 });
 
 app.use('/api/', apiLimiter);
-app.use('/api/jobs', jobsRouter);
+app.use('/api/jobs', authMiddleware, jobsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/ready', (_req, res) => {
+  res.json({ status: 'ready', timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {

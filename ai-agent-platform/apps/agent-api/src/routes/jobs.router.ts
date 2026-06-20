@@ -18,5 +18,9 @@ router.get('/:jobId/status', (req, res) => jobsController.getStatus(req, res));
 router.get('/:jobId/logs', (req, res) => jobsController.getLogs(req, res));
 router.get('/:jobId/report', (req, res) => jobsController.getReport(req, res));
 router.get('/:jobId/download', (req, res) => jobsController.downloadArtifacts(req, res));
+router.get('/:jobId/stream', (req, res) => jobsController.streamLogs(req, res));
+router.get('/:jobId/artifacts/:testCaseId/:kind', (req, res) => jobsController.getArtifact(req, res));
+router.get('/', (req, res) => jobsController.listJobs(req, res));
+router.delete('/:jobId', (req, res) => jobsController.cancelJob(req, res));
 
 export { router as jobsRouter };

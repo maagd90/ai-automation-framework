@@ -164,7 +164,7 @@ export default defineConfig({
   forbidOnly: !!process.env['CI'],
   retries: ${job.retryCount},
   workers: 1,
-  reporter: [['html', { open: 'never' }], ['line']],
+  reporter: [['html', { open: 'never' }], ['line'], ['json', { outputFile: 'reports/playwright-report.json' }]],
   use: {
     headless: ${job.headless},
     screenshot: ${screenshot},

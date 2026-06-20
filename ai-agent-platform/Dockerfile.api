@@ -1,0 +1,24 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY ai-agent-platform ./ai-agent-platform
+COPY src ./src
+COPY tsconfig.json ./
+RUN npm ci
+RUN npm run build
+WORKDIR /app/ai-agent-platform
+RUN npm ci
+RUN npm run build:types && npm run build -w @ai-agent/agent-core && npm run build -w @ai-agent/agent-api
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/ai-agent-platform/apps/agent-api/dist ./ai-agent-platform/apps/agent-api/dist
+COPY --from=builder /app/ai-agent-platform/packages ./ai-agent-platform/packages
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/ai-agent-platform/node_modules ./ai-agent-platform/node_modules
+COPY --from=builder /app/ai-agent-platform/apps/agent-api/package.json ./ai-agent-platform/apps/agent-api/package.json
+ENV NODE_ENV=production
+ENV PORT=3001
+EXPOSE 3001
+CMD ["node", "ai-agent-platform/apps/agent-api/dist/server.js"]

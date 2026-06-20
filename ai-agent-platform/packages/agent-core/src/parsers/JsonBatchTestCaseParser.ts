@@ -42,6 +42,9 @@ export class JsonBatchTestCaseParser {
     const id = typeof obj['id'] === 'string' ? obj['id'] : String(obj['id'] ?? context);
     const name = typeof obj['name'] === 'string' ? obj['name'] : id;
     const description = typeof obj['description'] === 'string' ? obj['description'] : undefined;
+    const priority = ['high', 'medium', 'low'].includes(String(obj['priority']))
+      ? (obj['priority'] as 'high' | 'medium' | 'low')
+      : undefined;
     const preconditions = Array.isArray(obj['preconditions'])
       ? (obj['preconditions'] as unknown[]).filter(
           (item): item is string => typeof item === 'string',
@@ -59,7 +62,7 @@ export class JsonBatchTestCaseParser {
     const steps: TestStep[] = (obj['steps'] as unknown[]).map((s, i) =>
       this.parseStep(s, `${context}.steps[${i}]`),
     );
-    return { id, name, description, preconditions, steps, expectedResults };
+    return { id, name, description, priority, preconditions, steps, expectedResults };
   }
 
   private parseStep(raw: unknown, context: string): TestStep {
@@ -70,7 +73,13 @@ export class JsonBatchTestCaseParser {
     const order = typeof s['order'] === 'number' ? s['order'] : Number(s['order'] ?? 0);
     const action = typeof s['action'] === 'string' ? s['action'] : '';
     const target = typeof s['target'] === 'string' ? s['target'] : undefined;
-    const value = typeof s['value'] === 'string' ? s['value'] : undefined;
-    return { order, action, target, value };
+    const value =
+      typeof s['value'] === 'string'
+        ? s['value']
+        : typeof s['expected'] === 'string'
+          ? s['expected']
+          : undefined;
+    const expected = typeof s['expected'] === 'string' ? s['expected'] : undefined;
+    return { order, action, target, value, expected };
   }
 }

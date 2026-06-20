@@ -6,7 +6,9 @@ import { LocatorCandidateBuilder } from './LocatorCandidateBuilder.js';
 import { LocatorRanker } from './LocatorRanker.js';
 import { LocatorValidator } from './LocatorValidator.js';
 import { TargetMatcher } from './TargetMatcher.js';
+import { LocatorResolutionError } from './LocatorResolutionError.js';
 import { Logger } from '../../utils/Logger.js';
+import type { AiAssistService } from '../ai/AiAssistService.js';
 
 export class LocatorService {
   private readonly builder = new LocatorCandidateBuilder();
@@ -15,6 +17,8 @@ export class LocatorService {
   private readonly matcher = new TargetMatcher();
   private readonly logger = new Logger('LocatorService');
 
+  constructor(private readonly aiAssist?: AiAssistService) {}
+
   async resolveLocatorsForSteps(
     page: Page,
     steps: TestStep[],
@@ -22,11 +26,39 @@ export class LocatorService {
   ): Promise<LocatorResult[]> {
     const results: LocatorResult[] = [];
 
-    for (const step of steps) {
-      const matched = this.matcher.match(step.target, elements, step.action);
-      if (!matched) {
-        this.logger.warn(`No element matched for target: ${step.target}`);
+    for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
+      const step = steps[stepIndex];
+      if (step.action === 'navigate') {
+        results.push({
+          stepTarget: step.target,
+          action: 'navigate',
+          element: {
+            tagName: 'navigate',
+          },
+          primaryLocator: {
+            strategy: 'css',
+            value: step.target,
+            score: 100,
+            validated: true,
+            unique: true,
+          },
+          fallbackLocators: [],
+        });
         continue;
+      }
+
+      let matched = this.matcher.match(step.target, elements, step.action);
+      if (!matched && this.aiAssist) {
+        const labels = elements
+          .map((el) => el.accessibleName || el.associatedLabel || el.placeholder || el.text)
+          .filter((label): label is string => Boolean(label));
+        const aiChoice = await this.aiAssist.suggestTargetMapping(step.target, labels);
+        if (aiChoice) {
+          matched = this.matcher.match(aiChoice, elements, step.action);
+        }
+      }
+      if (!matched) {
+        throw new LocatorResolutionError(stepIndex, step.target, step.action);
       }
 
       this.logger.info(`Matched target "${step.target}"`, {
@@ -41,7 +73,9 @@ export class LocatorService {
       const primary = unique[0] ?? validated[0];
       const fallbacks = (unique.length > 0 ? unique.slice(1) : validated.slice(1)).slice(0, 3);
 
-      if (!primary) continue;
+      if (!primary) {
+        throw new LocatorResolutionError(stepIndex, step.target, step.action, 'No valid locator candidate found');
+      }
 
       results.push({
         stepTarget: step.target,

@@ -1,16 +1,41 @@
 // ── Canonical test-case model ──────────────────────────────────────────────
 
+export type ActionType =
+  | 'enter'
+  | 'click'
+  | 'select'
+  | 'check'
+  | 'uncheck'
+  | 'verifyText'
+  | 'verifyVisible'
+  | 'navigate';
+
+export const ACTION_TYPES: readonly ActionType[] = [
+  'enter',
+  'click',
+  'select',
+  'check',
+  'uncheck',
+  'verifyText',
+  'verifyVisible',
+  'navigate',
+] as const;
+
+export type TestPriority = 'high' | 'medium' | 'low';
+
 export interface TestStep {
   order: number;
-  action: string;
+  action: ActionType | string;
   target?: string;
   value?: string;
+  expected?: string;
 }
 
 export interface TestCase {
   id: string;
   name: string;
   description?: string;
+  priority?: TestPriority;
   preconditions?: string[];
   steps: TestStep[];
   expectedResults?: string[];
@@ -64,6 +89,29 @@ export interface AiUsageSummary {
 
 export type BatchStatus = 'passed' | 'failed' | 'partial';
 
+export type CaseStatus = 'passed' | 'failed' | 'skipped';
+
+export interface StepResult {
+  order: number;
+  action: string;
+  target?: string;
+  status: CaseStatus;
+  error?: string;
+}
+
+export interface TestCaseResult {
+  id: string;
+  name: string;
+  priority?: TestPriority;
+  generationStatus: CaseStatus;
+  executionStatus?: CaseStatus;
+  durationMs: number;
+  error?: string;
+  screenshotUrl?: string;
+  traceUrl?: string;
+  steps: StepResult[];
+}
+
 export interface BatchReport {
   status: BatchStatus;
   totalCases: number;
@@ -73,6 +121,7 @@ export interface BatchReport {
   parallelAgents: number;
   aiUsage?: AiUsageSummary;
   summary: string;
+  testCaseResults?: TestCaseResult[];
 }
 
 // ── Job domain ─────────────────────────────────────────────────────────────

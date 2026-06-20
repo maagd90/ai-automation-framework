@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'cursor/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build root CLI
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Install platform dependencies
+        working-directory: ai-agent-platform
+        run: npm ci
+
+      - name: Build platform packages
+        working-directory: ai-agent-platform
+        run: npm run build:types && npm run build -w @ai-agent/agent-core && npm run build -w @ai-agent/agent-api
+
+      - name: Validate SauceDemo batch JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('examples/testcases/saucedemo-batch.json','utf8')); console.log('SauceDemo batch JSON valid')"
+
+      - name: Build agent-ui
+        working-directory: ai-agent-platform
+        run: npm run build -w @ai-agent/agent-ui

@@ -3,12 +3,14 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { jobStore } from '../services/JobStore';
-import { batchJobManager } from '../services/batch/BatchJobManager';
+import { jobStore } from '../services/PersistentJobStore';
+import { jobQueue } from '../services/JobQueue';
 import { zipService } from '../services/ZipService';
 import { JobEntity } from '../domain/Job';
 import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
 import { CreateJobSchema } from '../validation/schemas';
+import { validateUploadedTestCase } from '../services/UploadValidationService';
+import { deriveUrlFromBatch } from '@ai-agent/agent-core';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
 const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
@@ -88,10 +90,32 @@ export class JobsController {
     // Move from temp → job input dir
     fs.renameSync(uploadedPath, inputFilePath);
 
+    const uploadValidation = validateUploadedTestCase(inputFilePath);
+    if (!uploadValidation.valid) {
+      try { fs.unlinkSync(inputFilePath); } catch { /* ignore */ }
+      res.status(400).json({
+        error: 'Test case validation failed',
+        errors: uploadValidation.errors,
+      });
+      return;
+    }
+
+    let resolvedUrl = url;
+    if (!resolvedUrl && uploadValidation.batch) {
+      resolvedUrl = deriveUrlFromBatch(uploadValidation.batch);
+    }
+
+    if (!resolvedUrl) {
+      res.status(400).json({
+        error: 'URL is required when test cases do not include a navigate step with a valid URL.',
+      });
+      return;
+    }
+
     const job = new JobEntity({
       jobId,
       inputFile: inputFilePath,
-      url,
+      url: resolvedUrl,
       framework,
       executionMode,
       headless,
@@ -120,11 +144,8 @@ export class JobsController {
           }
         : undefined;
 
-    // Run asynchronously — do not await
-    void batchJobManager.run(job, aiConfig).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[Job ${jobId}] Unhandled runner error: ${msg}`);
-    });
+    // Run asynchronously via job queue
+    jobQueue.enqueue(job, aiConfig);
 
     res.status(201).json({ jobId });
   }
@@ -180,6 +201,116 @@ export class JobsController {
     } catch {
       res.status(404).json({ error: 'Job not found' });
     }
+  }
+
+  listJobs(req: Request, res: Response): void {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const jobs = jobStore.list(status);
+    res.json({
+      jobs: jobs.map((job) => ({
+        jobId: job.jobId,
+        status: job.status,
+        createdAt: job.createdAt,
+        totalCases: job.totalCases,
+        processedCases: job.processedCases,
+      })),
+    });
+  }
+
+  cancelJob(req: Request, res: Response): void {
+    const { jobId } = req.params as { jobId: string };
+    try {
+      const job = jobStore.getOrThrow(jobId);
+      if (job.status === 'completed' || job.status === 'failed') {
+        jobStore.delete(jobId);
+        res.json({ message: 'Job removed' });
+        return;
+      }
+      job.setStatus('failed');
+      job.error = 'Cancelled by user';
+      jobStore.set(job);
+      res.json({ message: 'Job cancelled' });
+    } catch {
+      res.status(404).json({ error: 'Job not found' });
+    }
+  }
+
+  streamLogs(req: Request, res: Response): void {
+    const { jobId } = req.params as { jobId: string };
+    try {
+      const job = jobStore.getOrThrow(jobId);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      let cursor = 0;
+      const send = (): void => {
+        while (cursor < job.logs.length) {
+          res.write(`data: ${JSON.stringify({ line: job.logs[cursor] })}\n\n`);
+          cursor += 1;
+        }
+        if (job.status === 'completed' || job.status === 'failed') {
+          res.write(`data: ${JSON.stringify({ done: true, status: job.status })}\n\n`);
+          res.end();
+          return;
+        }
+        setTimeout(send, 1000);
+      };
+      send();
+    } catch {
+      res.status(404).json({ error: 'Job not found' });
+    }
+  }
+
+  getArtifact(req: Request, res: Response): void {
+    const { jobId, testCaseId, kind } = req.params as {
+      jobId: string;
+      testCaseId: string;
+      kind: string;
+    };
+    try {
+      const job = jobStore.getOrThrow(jobId);
+      if (!job.artifactsPath) {
+        res.status(404).json({ error: 'Artifacts not available' });
+        return;
+      }
+
+      const testResultsDir = path.join(job.artifactsPath, 'test-results');
+      if (!fs.existsSync(testResultsDir)) {
+        res.status(404).json({ error: 'Test results not found' });
+        return;
+      }
+
+      const files = this.findFilesRecursive(testResultsDir);
+      const match = files.find((file) => {
+        if (kind === 'screenshot') return file.endsWith('.png');
+        if (kind === 'trace') return file.endsWith('.zip');
+        return false;
+      });
+
+      if (!match) {
+        res.status(404).json({ error: 'Artifact not found', testCaseId });
+        return;
+      }
+
+      res.sendFile(path.resolve(match));
+    } catch {
+      res.status(404).json({ error: 'Job not found' });
+    }
+  }
+
+  private findFilesRecursive(dir: string): string[] {
+    const results: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...this.findFilesRecursive(fullPath));
+      } else {
+        results.push(fullPath);
+      }
+    }
+    return results;
   }
 }
 

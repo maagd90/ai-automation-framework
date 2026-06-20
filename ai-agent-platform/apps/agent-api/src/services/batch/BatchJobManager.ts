@@ -5,15 +5,17 @@ import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter } from '@ai-agent/agent-core';
 import { JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../JobStore';
+import { jobStore } from '../PersistentJobStore';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ProjectMerger } from './ProjectMerger';
 import { BatchReportService } from './BatchReportService';
+import { PlaywrightReportParser } from './PlaywrightReportParser';
 
 export class BatchJobManager {
   private readonly pool = new AgentPoolManager();
   private readonly merger = new ProjectMerger();
   private readonly reporter = new BatchReportService();
+  private readonly playwrightParser = new PlaywrightReportParser();
 
   async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
@@ -73,13 +75,17 @@ export class BatchJobManager {
 
       // ── Optionally run tests ───────────────────────────────────────────────
       let testRunExitCode = 0;
+      let executionResults;
       if (job.executionMode === 'generate-and-execute') {
         log('Execution mode: Generate + Execute — running Playwright tests…');
         testRunExitCode = await this.runPlaywright(finalDir, log);
         log(`Playwright exit code: ${testRunExitCode}`);
+        executionResults = this.playwrightParser.parse(
+          path.join(finalDir, 'reports', 'playwright-report.json'),
+          job.jobId,
+        );
       }
 
-      // ── Report ────────────────────────────────────────────────────────────
       const aiUsage = this.buildAiUsageSummary(aiConfig, childResults);
 
       const report = this.reporter.build({
@@ -89,6 +95,7 @@ export class BatchJobManager {
         executionMode: job.executionMode,
         testRunExitCode,
         aiUsage,
+        executionResults,
       });
       job.report = report;
 

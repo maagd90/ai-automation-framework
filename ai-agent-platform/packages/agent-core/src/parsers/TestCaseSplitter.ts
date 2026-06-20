@@ -9,6 +9,7 @@ export interface SplitResult {
 }
 
 interface RootCliTestCase {
+  id?: string;
   name: string;
   preconditions: string[];
   steps: Array<{
@@ -39,6 +40,7 @@ export class TestCaseSplitter {
 
   private toRootCliTestCase(testCase: TestCase): RootCliTestCase {
     return {
+      id: testCase.id,
       name: testCase.name,
       preconditions: testCase.preconditions ?? [],
       steps: testCase.steps.map((step) => ({
@@ -46,6 +48,7 @@ export class TestCaseSplitter {
         action: step.action,
         target: step.target ?? '',
         ...(step.value !== undefined ? { value: step.value } : {}),
+        ...(step.expected !== undefined ? { expected: step.expected } : {}),
       })),
       expectedResults: testCase.expectedResults ?? [],
     };

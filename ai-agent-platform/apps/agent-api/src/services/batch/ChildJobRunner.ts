@@ -4,13 +4,17 @@ import fs from 'fs';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../JobStore';
+import { jobStore } from '../PersistentJobStore';
 
 export interface ChildRunResult {
   childId: string;
+  testCaseId: string;
+  testCaseName: string;
+  priority?: string;
   exitCode: number;
   durationMs: number;
   attempts: number;
+  error?: string;
   aiUsage?: AiUsageSummary;
 }
 
@@ -19,6 +23,7 @@ export class ChildJobRunner {
     job: JobEntity,
     childId: string,
     childFilePath: string,
+    testCaseMeta: { id: string; name: string; priority?: string },
     aiConfig?: AiConfig,
     attempt = 1,
   ): Promise<ChildRunResult> {
@@ -79,6 +84,9 @@ export class ChildJobRunner {
       child.on('close', (code) => {
         resolve({
           childId,
+          testCaseId: testCaseMeta.id,
+          testCaseName: testCaseMeta.name,
+          priority: testCaseMeta.priority,
           exitCode: code ?? 1,
           durationMs: Date.now() - started,
           attempts: attempt,

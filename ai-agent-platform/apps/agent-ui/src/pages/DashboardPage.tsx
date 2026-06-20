@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { PlayIcon, AlertCircleIcon } from 'lucide-react';
 import FileUpload from '../components/FileUpload';
 import UrlInput from '../components/UrlInput';
+import FrameworkSelector from '../components/FrameworkSelector';
 import ExecutionConfigPanel from '../components/ExecutionConfigPanel';
 import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
@@ -15,6 +16,7 @@ export default function DashboardPage() {
   // Test input
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState('');
+  const [framework, setFramework] = useState('playwright-typescript');
 
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
@@ -51,20 +53,19 @@ export default function DashboardPage() {
       setValidationError('Please upload a test case file.');
       return;
     }
-    if (!url.trim()) {
-      setValidationError('Please enter a target URL.');
-      return;
-    }
-    try {
-      new URL(url);
-    } catch {
-      setValidationError('Please enter a valid URL (e.g. https://example.com).');
-      return;
+    if (url.trim()) {
+      try {
+        new URL(url);
+      } catch {
+        setValidationError('Please enter a valid URL (e.g. https://example.com).');
+        return;
+      }
     }
 
     mutation.mutate({
       file,
-      url,
+      url: url.trim() || undefined,
+      framework,
       executionMode,
       headless,
       parallelAgents,
@@ -104,7 +105,26 @@ export default function DashboardPage() {
             <FileUpload onFileSelect={setFile} />
           </div>
 
-          <UrlInput value={url} onChange={setUrl} />
+          <UrlInput value={url} onChange={setUrl} optional />
+
+          <FrameworkSelector value={framework} onChange={setFramework} />
+
+          <div className="flex gap-3 text-sm">
+            <a
+              href="/samples/empty-batch-template.json"
+              download="test-case-template.json"
+              className="text-brand-600 hover:underline"
+            >
+              Download JSON template
+            </a>
+            <a
+              href="/samples/saucedemo-batch.json"
+              download="saucedemo-batch.json"
+              className="text-brand-600 hover:underline"
+            >
+              Download SauceDemo sample
+            </a>
+          </div>
         </section>
 
         {/* ── Execution Config ─────────────────────────────────────────────── */}
@@ -152,7 +172,21 @@ export default function DashboardPage() {
         {(validationError || mutation.isError) && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircleIcon className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{validationError || 'Failed to create job. Please try again.'}</span>
+            <div>
+              <span>{validationError || 'Failed to create job. Please try again.'}</span>
+              {mutation.error && 'response' in mutation.error && (
+                <ul className="mt-2 list-disc list-inside space-y-1">
+                  {(
+                    (mutation.error as { response?: { data?: { errors?: { field: string; message: string }[] } } })
+                      .response?.data?.errors ?? []
+                  ).map((err) => (
+                    <li key={`${err.field}-${err.message}`}>
+                      <span className="font-medium">{err.field}:</span> {err.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
 

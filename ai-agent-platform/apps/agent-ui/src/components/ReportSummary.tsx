@@ -1,8 +1,58 @@
-import type { JobReportResponse } from '@ai-agent/shared-types';
+import type { JobReportResponse, TestCaseResult } from '@ai-agent/shared-types';
 import { CheckCircleIcon, XCircleIcon, AlertCircleIcon, ClockIcon } from 'lucide-react';
 
 interface ReportSummaryProps {
   report: JobReportResponse;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    passed: 'bg-green-100 text-green-700',
+    failed: 'bg-red-100 text-red-700',
+    skipped: 'bg-gray-100 text-gray-600',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? styles.skipped}`}>
+      {status}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority?: string }) {
+  if (!priority) return null;
+  const styles: Record<string, string> = {
+    high: 'bg-red-50 text-red-700 border-red-200',
+    medium: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+    low: 'bg-blue-50 text-blue-700 border-blue-200',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded border text-xs font-medium ${styles[priority] ?? ''}`}>
+      {priority}
+    </span>
+  );
+}
+
+function TestCaseRow({ result }: { result: TestCaseResult }) {
+  return (
+    <tr className="border-t">
+      <td className="px-3 py-2 font-mono text-xs">{result.id}</td>
+      <td className="px-3 py-2 text-sm">{result.name}</td>
+      <td className="px-3 py-2"><PriorityBadge priority={result.priority} /></td>
+      <td className="px-3 py-2"><StatusBadge status={result.generationStatus} /></td>
+      <td className="px-3 py-2">
+        {result.executionStatus ? <StatusBadge status={result.executionStatus} /> : '—'}
+      </td>
+      <td className="px-3 py-2 text-xs text-gray-500">{(result.durationMs / 1000).toFixed(1)}s</td>
+      <td className="px-3 py-2 text-xs">
+        {result.screenshotUrl && (
+          <a href={result.screenshotUrl} className="text-brand-600 hover:underline mr-2">Screenshot</a>
+        )}
+        {result.traceUrl && (
+          <a href={result.traceUrl} className="text-brand-600 hover:underline">Trace</a>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 export default function ReportSummary({ report }: ReportSummaryProps) {
@@ -15,9 +65,9 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
     titleClass: string;
     title: string;
   }> = {
-    passed:  { border: 'border-green-400 bg-green-50',   Icon: CheckCircleIcon,  iconClass: 'text-green-600',  titleClass: 'text-green-700',  title: 'Generation Successful' },
-    partial: { border: 'border-yellow-400 bg-yellow-50', Icon: AlertCircleIcon,  iconClass: 'text-yellow-600', titleClass: 'text-yellow-700', title: 'Partial Success'        },
-    failed:  { border: 'border-red-400 bg-red-50',       Icon: XCircleIcon,      iconClass: 'text-red-600',    titleClass: 'text-red-700',    title: 'Generation Failed'      },
+    passed:  { border: 'border-green-400 bg-green-50',   Icon: CheckCircleIcon,  iconClass: 'text-green-600',  titleClass: 'text-green-700',  title: 'Run Successful' },
+    partial: { border: 'border-yellow-400 bg-yellow-50', Icon: AlertCircleIcon,  iconClass: 'text-yellow-600', titleClass: 'text-yellow-700', title: 'Partial Success' },
+    failed:  { border: 'border-red-400 bg-red-50',       Icon: XCircleIcon,      iconClass: 'text-red-600',    titleClass: 'text-red-700',    title: 'Run Failed' },
   };
 
   const { border: borderClass, Icon, iconClass, titleClass, title } = styleMap[status];
@@ -29,7 +79,6 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
         <h3 className={`text-lg font-bold ${titleClass}`}>{title}</h3>
       </div>
 
-      {/* Batch stats grid */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-white rounded-lg border px-3 py-2 text-center">
           <p className="text-xs text-gray-500 mb-0.5">Total</p>
@@ -48,9 +97,7 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <ClockIcon className="w-4 h-4" />
-          <span>
-            Duration: <strong>{(report.durationMs / 1000).toFixed(1)}s</strong>
-          </span>
+          <span>Duration: <strong>{(report.durationMs / 1000).toFixed(1)}s</strong></span>
         </div>
         <div className="text-sm text-gray-600">
           Parallel agents: <strong>{report.parallelAgents}</strong>
@@ -62,7 +109,30 @@ export default function ReportSummary({ report }: ReportSummaryProps) {
         )}
       </div>
 
-      <p className="text-sm text-gray-700 bg-white rounded border px-3 py-2">{report.summary}</p>
+      <p className="text-sm text-gray-700 bg-white rounded border px-3 py-2 mb-4">{report.summary}</p>
+
+      {report.testCaseResults && report.testCaseResults.length > 0 && (
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              <tr>
+                <th className="px-3 py-2">ID</th>
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Priority</th>
+                <th className="px-3 py-2">Generated</th>
+                <th className="px-3 py-2">Executed</th>
+                <th className="px-3 py-2">Duration</th>
+                <th className="px-3 py-2">Artifacts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.testCaseResults.map((result) => (
+                <TestCaseRow key={result.id} result={result} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

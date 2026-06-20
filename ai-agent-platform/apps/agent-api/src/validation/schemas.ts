@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const ExecutionConfigSchema = z.object({
-  framework: z.string().min(1),
+  framework: z.string().min(1).default('playwright-typescript'),
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),
@@ -54,7 +54,7 @@ export const AiConfigSchema = z.object({
 
 export const CreateJobSchema = z
   .object({
-    url: z.string().url(),
+    url: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
   })
   .merge(ExecutionConfigSchema)
   .merge(AiConfigSchema);

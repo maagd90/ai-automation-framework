@@ -1,7 +1,7 @@
 import type { SplitResult } from '@ai-agent/agent-core';
 import type { AiConfig } from '@ai-agent/shared-types';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../JobStore';
+import { jobStore } from '../PersistentJobStore';
 import { ChildJobRunner, type ChildRunResult } from './ChildJobRunner';
 
 export class AgentPoolManager {
@@ -33,7 +33,18 @@ export class AgentPoolManager {
             );
             jobStore.set(job);
           }
-          result = await this.runner.run(job, split.childId, split.filePath, aiConfig, attempt);
+          result = await this.runner.run(
+            job,
+            split.childId,
+            split.filePath,
+            {
+              id: split.testCase.id,
+              name: split.testCase.name,
+              priority: split.testCase.priority,
+            },
+            aiConfig,
+            attempt,
+          );
         } while (result.exitCode !== 0 && attempt < maxAttempts);
 
         results.push(result);

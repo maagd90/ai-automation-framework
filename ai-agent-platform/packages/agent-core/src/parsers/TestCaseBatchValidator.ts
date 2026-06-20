@@ -1,4 +1,7 @@
 import type { TestCaseBatch } from '@ai-agent/shared-types';
+import { ACTION_TYPES } from '@ai-agent/shared-types';
+
+const VALID_ACTIONS = new Set<string>(ACTION_TYPES);
 
 export interface ValidationError {
   field: string;
@@ -51,6 +54,29 @@ export class TestCaseBatchValidator {
               field: `${ctx}.steps[${j}].action`,
               message: 'action is required',
             });
+          } else if (!VALID_ACTIONS.has(step.action)) {
+            errors.push({
+              field: `${ctx}.steps[${j}].action`,
+              message: `invalid action "${step.action}". Allowed: ${ACTION_TYPES.join(', ')}`,
+            });
+          }
+
+          if (step.action !== 'navigate' && (!step.target || !step.target.trim())) {
+            errors.push({
+              field: `${ctx}.steps[${j}].target`,
+              message: 'target is required for non-navigate actions',
+            });
+          }
+
+          if (step.action === 'navigate' && step.target) {
+            try {
+              new URL(step.target);
+            } catch {
+              errors.push({
+                field: `${ctx}.steps[${j}].target`,
+                message: 'navigate target must be a valid URL',
+              });
+            }
           }
         }
       }

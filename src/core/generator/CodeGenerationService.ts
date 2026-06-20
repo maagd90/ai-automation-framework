@@ -6,6 +6,7 @@ import { SpecGenerator } from './SpecGenerator.js';
 import { JsonArtifactStore } from '../storage/JsonArtifactStore.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { Logger } from '../../utils/Logger.js';
+import type { AiAssistService } from '../ai/AiAssistService.js';
 
 export class CodeGenerationService {
   private readonly pageObjectGen = new PageObjectGenerator();
@@ -13,13 +14,15 @@ export class CodeGenerationService {
   private readonly store = new JsonArtifactStore();
   private readonly logger = new Logger('CodeGenerationService');
 
+  constructor(private readonly aiAssist?: AiAssistService) {}
+
   async generate(
     testCase: TestCase,
     url: string,
     locators: LocatorResult[],
     outputDir: string,
   ): Promise<GeneratedTestArtifact> {
-    const pageName = StringUtils.toKebabCase(testCase.name.replace(/\s+/g, '-'));
+    const pageName = await this.resolvePageName(testCase.name);
     this.logger.info(`Generating code artifacts for: ${testCase.name}`);
 
     const pageObjectPath = this.pageObjectGen.generate(pageName, url, locators, outputDir);
@@ -42,5 +45,12 @@ export class CodeGenerationService {
     };
 
     return artifact;
+  }
+
+  private async resolvePageName(name: string): Promise<string> {
+    const base = StringUtils.toKebabCase(name.replace(/\s+/g, '-'));
+    if (!this.aiAssist) return base;
+    const suggested = await this.aiAssist.suggestMethodName('page', name);
+    return suggested ? StringUtils.toKebabCase(suggested) : base;
   }
 }

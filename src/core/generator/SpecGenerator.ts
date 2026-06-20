@@ -4,9 +4,11 @@ import type { LocatorResult } from '../domain/LocatorResult.js';
 import { StringUtils } from '../../utils/StringUtils.js';
 import { FileUtils } from '../../utils/FileUtils.js';
 import { Logger } from '../../utils/Logger.js';
+import { SetupGenerator } from './SetupGenerator.js';
 
 export class SpecGenerator {
   private readonly logger = new Logger('SpecGenerator');
+  private readonly setupGen = new SetupGenerator();
 
   generate(
     testCase: TestCase,
@@ -21,7 +23,12 @@ export class SpecGenerator {
     const pageVarName = StringUtils.toCamelCase(pageName) + 'Page';
 
     const callLines: string[] = [];
-    callLines.push(`await ${pageVarName}.goto();`);
+    const firstStep = testCase.steps[0];
+    const startsWithNavigate = firstStep?.action === 'navigate';
+
+    if (!startsWithNavigate) {
+      callLines.push(`await ${pageVarName}.goto();`);
+    }
 
     for (const [index, locator] of locators.entries()) {
       const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
@@ -30,8 +37,11 @@ export class SpecGenerator {
         case 'enter':
           callLines.push(`await ${pageVarName}.${methodName}(${this.renderStringLiteral(step?.value ?? '')});`);
           break;
+        case 'navigate':
+          callLines.push(`await ${pageVarName}.${methodName}(${this.renderStringLiteral(step?.target ?? url)});`);
+          break;
         case 'verifyText': {
-          const expected = step?.expected ?? this.resolveExpectedText(testCase, step?.target);
+          const expected = step?.value ?? step?.expected ?? this.resolveExpectedText(testCase, step?.target);
           if (expected) {
             callLines.push(`await ${pageVarName}.${methodName}(${this.renderStringLiteral(expected)});`);
           }
@@ -45,11 +55,15 @@ export class SpecGenerator {
     const content = `import { test } from '@playwright/test';
 import { ${className} } from '../pages/${className}';
 
-test(${this.renderStringLiteral(testCase.name)}, async ({ page }) => {
+${this.setupGen.renderDescribeWrapper(
+  testCase,
+  `test(${this.renderStringLiteral(testCase.name)}, async ({ page }) => {
   const ${pageVarName} = new ${className}(page);
 
-${callLines.map(l => `  ${l.trim()}`).join('\n')}
-});
+${callLines.map(l => `    ${l.trim()}`).join('\n')}
+  });`,
+  testCase.id,
+)}
 `;
 
     FileUtils.ensureDir(path.dirname(outPath));
