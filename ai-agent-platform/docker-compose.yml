@@ -50,7 +50,7 @@ services:
     volumes:
       - job_data:/tmp/jobs
     shm_size: '1gb'
-    # For RAM-backed ephemeral workspace, use docker-compose.hosting.yml tmpfs instead.
+    # For RAM-backed ephemeral workspace, use docker-compose.deploy.yml tmpfs instead.
 
   agent-ui:
     build:

@@ -92,13 +92,17 @@ Key services in `apps/agent-api/src/services/batch/`:
 | `API_KEY` | Require `x-api-key` when set |
 | `ALLOWED_ORIGINS` | CORS origins (comma-separated) |
 
-## Internet hosting
+## Docker (one command)
 
-See **[docs/hosting.md](docs/hosting.md)** for public deployment with Docker, Cloudflare, ephemeral sessions, AWS MVP sizing, and Windows self-host agent-pool demos.
+From the **repo root**:
 
 ```bash
-docker compose -f docker-compose.hosting.yml up --build -d
+docker compose -f ai-agent-platform/docker-compose.deploy.yml up --build -d
 ```
+
+Open **http://localhost:3000** — no extra config files or exports needed for local use.
+
+See **[docs/hosting.md](docs/hosting.md)** for all env keys, public HTTPS (`--profile public`), Cloudflare, and Windows self-host demos.
 
 ## Build scripts
 

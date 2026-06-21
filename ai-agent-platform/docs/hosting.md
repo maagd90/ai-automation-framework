@@ -2,34 +2,55 @@
 
 This guide covers deploying the AI Agent Platform on the public internet with ephemeral upload sessions, abuse protection, and optional Windows self-hosting for agent-pool demos.
 
-## Quick start (VPS + Docker)
+## One-command Docker deploy (local)
 
-1. Provision a VPS with **4 GB+ RAM** (8 GB preferred for parallel agents).
-2. Install Docker and Docker Compose.
-3. Clone the repo and set environment variables (see below).
-4. From `ai-agent-platform/`:
+From the **repo root**, run:
 
 ```bash
-export API_KEY=your-secret-key
-docker compose -f docker-compose.hosting.yml up --build -d
+docker compose -f ai-agent-platform/docker-compose.deploy.yml up --build -d
 ```
 
-5. Point your domain DNS to the server and edit `Caddyfile` with your hostname.
+Open the dashboard: **http://localhost:3000**
 
-## Recommended production environment
+Stop:
 
-| Variable | Example | Purpose |
-|----------|---------|---------|
-| `EPHEMERAL_SESSIONS` | `true` | Uploads stay in RAM; job workspace wiped after session |
-| `JOBS_DIR` | `/tmp/jobs` | Ephemeral workspace (use `tmpfs` in Docker) |
-| `SESSION_RETENTION_MS` | `900000` | 15 min window for results/download before cleanup |
-| `FORCE_HEADLESS` | `true` | Server always runs Playwright headless |
-| `API_KEY` | *(secret)* | Protects `/api/jobs` |
-| `ALLOWED_ORIGINS` | `https://your-domain.com` | CORS lockdown |
-| `MAX_PARALLEL_AGENTS` | `1` | MVP RAM cap |
+```bash
+docker compose -f ai-agent-platform/docker-compose.deploy.yml down
+```
+
+All configuration lives in **[docker-compose.deploy.yml](../docker-compose.deploy.yml)** — no separate Caddyfile or manual `export` commands required for local use.
+
+## Public HTTPS (optional)
+
+Point DNS to your server, then:
+
+```bash
+PUBLIC_DOMAIN=demo.example.com \
+ALLOWED_ORIGINS=https://demo.example.com \
+docker compose -f ai-agent-platform/docker-compose.deploy.yml --profile public up --build -d
+```
+
+Caddy TLS config is embedded in the same compose file (no external `Caddyfile`).
+
+## Environment variables
+
+| Variable | Default (local) | Purpose |
+|----------|-----------------|---------|
+| `UI_PORT` | `3000` | Host port for the dashboard |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | CORS — must match your UI URL |
+| `API_KEY` | *(empty)* | Server API auth secret |
+| `VITE_API_KEY` | *(empty)* | Same as `API_KEY` when auth enabled (UI build arg) |
+| `EPHEMERAL_SESSIONS` | `true` | Uploads in RAM; wipe session after job |
+| `FORCE_HEADLESS` | `true` | Always headless Playwright |
+| `MVP_MODE` | `true` | Stricter rate limits (20 req / 15 min) |
+| `MAX_PARALLEL_AGENTS` | `1` | Parallel worker cap |
 | `MAX_CONCURRENT_JOBS` | `1` | One batch at a time |
 | `MAX_JOBS_PER_IP_PER_HOUR` | `3` | Per-IP abuse limit |
-| `MVP_MODE` | `true` | Stricter API rate limits (20 req / 15 min) |
+| `SESSION_RETENTION_MS` | `900000` | 15 min before job workspace wipe |
+| `JOBS_DIR` | `/tmp/jobs` | Ephemeral workspace (tmpfs in Docker) |
+| `PUBLIC_DOMAIN` | — | Required with `--profile public` |
+
+**API auth:** leave `API_KEY` empty for open local use. To enable auth, set both `API_KEY` and `VITE_API_KEY` to the same secret when running `docker compose up --build`.
 
 ## Ephemeral sessions
 
@@ -40,13 +61,6 @@ When `EPHEMERAL_SESSIONS=true`:
 - Child codegen uses CLI `--stdin` (no split JSON files).
 - Job metadata uses an **in-memory store** (lost on API restart).
 - `JobCleanupService` removes the job workspace after `SESSION_RETENTION_MS` or on cancel.
-
-Mount `tmpfs` on `JOBS_DIR` in Docker so generated artifacts never touch physical disk:
-
-```yaml
-tmpfs:
-  - /tmp/jobs:size=512M,mode=1777
-```
 
 ## Cloudflare (free tier)
 
@@ -68,7 +82,7 @@ Put Cloudflare in front of your origin before sharing a public URL:
 4. Optional: add [Turnstile](https://developers.cloudflare.com/turnstile/) widget to the dashboard submit form.
 5. Optional: Cloudflare rate limiting rule on `POST /api/jobs*`.
 
-Origin should only expose **443** (Caddy handles TLS). Do not expose port 3001 publicly.
+Origin should only expose **443** when using the public profile. Do not expose port 3001 publicly.
 
 ## AWS MVP under ~$20/month
 
@@ -81,7 +95,7 @@ Origin should only expose **443** (Caddy handles TLS). Do not expose port 3001 p
 
 Use `MAX_PARALLEL_AGENTS=1`, `FORCE_HEADLESS=true`, and start with **generate-only** if RAM is tight.
 
-For more headroom at lower cost, consider Hetzner CX22 (~4 GB RAM, ~€5/mo) with the same Docker Compose stack.
+For more headroom at lower cost, consider Hetzner CX22 (~4 GB RAM, ~€5/mo) with the same deploy file.
 
 ## Windows 8 GB self-host (agent pool demo)
 
@@ -98,7 +112,6 @@ $env:EPHEMERAL_SESSIONS = "true"
 $env:FORCE_HEADLESS = "true"
 $env:MAX_PARALLEL_AGENTS = "4"
 $env:AUTO_SCALE = "true"
-$env:API_KEY = "your-demo-key"
 ```
 
 4. Start API: `node ai-agent-platform/apps/agent-api/dist/server.js`
@@ -120,7 +133,7 @@ $env:API_KEY = "your-demo-key"
 ## Security checklist
 
 - HTTPS at Caddy/Nginx/Cloudflare
-- `API_KEY` enabled
+- `API_KEY` + matching `VITE_API_KEY` when auth is enabled
 - `ALLOWED_ORIGINS` locked to your domain
 - SSRF guard blocks private/internal navigate URLs
 - Upload size capped at 5 MB
@@ -131,7 +144,7 @@ $env:API_KEY = "your-demo-key"
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.hosting.yml` | Slim API + UI + Caddy stack |
-| `Caddyfile` | TLS reverse proxy example |
+| `docker-compose.deploy.yml` | **Single deploy file** — API + UI (+ optional Caddy) |
 | `Dockerfile.api` | Playwright Chromium + API image |
+| `Dockerfile.ui` | React dashboard + nginx API proxy |
 | `apps/agent-api/src/config.ts` | Hosting env flags |

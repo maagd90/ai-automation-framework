@@ -1,0 +1,121 @@
+# =============================================================================
+# AI Agent Platform — single-file Docker deploy
+# =============================================================================
+#
+# Start (from repo root):
+#   docker compose -f ai-agent-platform/docker-compose.deploy.yml up --build -d
+#
+# Open UI:
+#   http://localhost:3000
+#
+# Stop:
+#   docker compose -f ai-agent-platform/docker-compose.deploy.yml down
+#
+# Logs:
+#   docker compose -f ai-agent-platform/docker-compose.deploy.yml logs -f
+#
+# Optional overrides (examples):
+#   UI_PORT=8080 docker compose -f ai-agent-platform/docker-compose.deploy.yml up --build -d
+#
+# Public HTTPS (requires DNS pointing to this host):
+#   PUBLIC_DOMAIN=demo.example.com \
+#   ALLOWED_ORIGINS=https://demo.example.com \
+#   docker compose -f ai-agent-platform/docker-compose.deploy.yml --profile public up --build -d
+#
+# API auth (optional — leave API_KEY empty for open local UI):
+#   API_KEY=your-secret VITE_API_KEY=your-secret \
+#   docker compose -f ai-agent-platform/docker-compose.deploy.yml up --build -d
+#
+# Environment keys (all optional for local use):
+#   UI_PORT                  Host port for dashboard (default 3000)
+#   ALLOWED_ORIGINS          CORS origins, comma-separated
+#   API_KEY                  API auth secret (server); leave empty for local UI
+#   VITE_API_KEY             Same as API_KEY when auth enabled (UI build arg)
+#   EPHEMERAL_SESSIONS       In-memory uploads + cleanup (default true)
+#   FORCE_HEADLESS           Always headless Playwright (default true)
+#   MVP_MODE                 Stricter rate limits (default true)
+#   MAX_PARALLEL_AGENTS      Parallel worker cap (default 1)
+#   MAX_CONCURRENT_JOBS      Global concurrent batches (default 1)
+#   MAX_JOBS_PER_IP_PER_HOUR Per-IP job creation cap (default 3)
+#   SESSION_RETENTION_MS     Ms before job workspace wipe (default 900000)
+#   JOBS_DIR                 Ephemeral workspace path (default /tmp/jobs)
+#   PORT                     API port inside container (default 3001)
+#   PUBLIC_DOMAIN            Domain for --profile public HTTPS
+# =============================================================================
+
+version: '3.9'
+
+configs:
+  caddyfile:
+    content: |
+      ${PUBLIC_DOMAIN} {
+        encode gzip
+
+        handle /api/* {
+          reverse_proxy agent-api:3001
+        }
+
+        handle {
+          reverse_proxy agent-ui:80
+        }
+      }
+
+services:
+  agent-api:
+    build:
+      context: ..
+      dockerfile: ai-agent-platform/Dockerfile.api
+    shm_size: '1gb'
+    environment:
+      PORT: ${PORT:-3001}
+      JOBS_DIR: ${JOBS_DIR:-/tmp/jobs}
+      EPHEMERAL_SESSIONS: ${EPHEMERAL_SESSIONS:-true}
+      FORCE_HEADLESS: ${FORCE_HEADLESS:-true}
+      MVP_MODE: ${MVP_MODE:-true}
+      MAX_PARALLEL_AGENTS: ${MAX_PARALLEL_AGENTS:-1}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-1}
+      MAX_JOBS_PER_IP_PER_HOUR: ${MAX_JOBS_PER_IP_PER_HOUR:-3}
+      SESSION_RETENTION_MS: ${SESSION_RETENTION_MS:-900000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      API_KEY: ${API_KEY:-}
+    tmpfs:
+      - /tmp/jobs:size=512M,mode=1777
+    expose:
+      - '3001'
+    restart: unless-stopped
+
+  agent-ui:
+    build:
+      context: ..
+      dockerfile: ai-agent-platform/Dockerfile.ui
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_FORCE_HEADLESS: ${VITE_FORCE_HEADLESS:-true}
+        VITE_API_KEY: ${VITE_API_KEY:-}
+    depends_on:
+      - agent-api
+    ports:
+      - '${UI_PORT:-3000}:80'
+    restart: unless-stopped
+
+  caddy:
+    profiles:
+      - public
+    image: caddy:2-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - agent-api
+      - agent-ui
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
