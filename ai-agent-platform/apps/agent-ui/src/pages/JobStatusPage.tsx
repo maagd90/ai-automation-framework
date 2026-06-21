@@ -67,7 +67,13 @@ export default function JobStatusPage() {
       </div>
 
       {statusQuery.data && (
-        <JobStatusCard jobId={jobId} status={statusQuery.data.status} />
+        <JobStatusCard
+          jobId={jobId}
+          status={statusQuery.data.status}
+          parallelAgents={statusQuery.data.parallelAgents}
+          totalCases={statusQuery.data.totalCases}
+          processedCases={statusQuery.data.processedCases}
+        />
       )}
 
       {/* Progress bar */}

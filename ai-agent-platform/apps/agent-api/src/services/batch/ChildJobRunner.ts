@@ -1,11 +1,11 @@
 import { spawn } from 'child_process';
 import path from 'path';
-import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../../config';
+import { AGENT_CORE_PATH, EPHEMERAL_SESSIONS, JOBS_BASE_DIR } from '../../config';
 import fs from 'fs';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { deriveUrlFromSteps } from '@ai-agent/agent-core';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../PersistentJobStore';
+import { jobStore } from '../jobStoreInstance';
 
 export interface ChildRunResult {
   childId: string;
@@ -24,7 +24,8 @@ export class ChildJobRunner {
   async run(
     job: JobEntity,
     childId: string,
-    childFilePath: string,
+    childFilePath: string | undefined,
+    childContent: string | undefined,
     testCaseMeta: { id: string; name: string; priority?: string; steps?: ChildRunResult['inputSteps'] },
     aiConfig?: AiConfig,
     attempt = 1,
@@ -35,17 +36,39 @@ export class ChildJobRunner {
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const childUrl = this.resolveChildUrl(childFilePath, job.url);
+    const useStdin = EPHEMERAL_SESSIONS && Boolean(childContent);
+    let resolvedFilePath = childFilePath;
+
+    if (!useStdin) {
+      if (!resolvedFilePath && childContent) {
+        const splitsDir = path.join(JOBS_BASE_DIR, job.jobId, 'splits');
+        fs.mkdirSync(splitsDir, { recursive: true });
+        resolvedFilePath = path.join(splitsDir, `${childId}.json`);
+        fs.writeFileSync(resolvedFilePath, childContent, 'utf8');
+      }
+      if (!resolvedFilePath) {
+        throw new Error(`No child input available for ${childId}`);
+      }
+    }
+
+    const childUrl = useStdin && childContent
+      ? this.resolveChildUrlFromContent(childContent, job.url)
+      : this.resolveChildUrl(resolvedFilePath!, job.url);
     const started = Date.now();
 
     const args = [
       AGENT_CORE_PATH,
       'generate',
-      '--file', childFilePath,
       '--url', childUrl,
       '--output', outputDir,
       '--headless', String(job.headless),
     ];
+
+    if (useStdin) {
+      args.push('--stdin');
+    } else {
+      args.push('--file', resolvedFilePath!);
+    }
 
     return new Promise<ChildRunResult>((resolve, reject) => {
       const child = spawn('node', args, {
@@ -71,6 +94,11 @@ export class ChildJobRunner {
         fs.appendFileSync(logsFile, entry + '\n');
         jobStore.set(job);
       };
+
+      if (useStdin && childContent) {
+        child.stdin.write(childContent);
+        child.stdin.end();
+      }
 
       child.stdout.on('data', (data: Buffer) => {
         data.toString().split('\n').filter(Boolean).forEach(appendLog);
@@ -100,6 +128,21 @@ export class ChildJobRunner {
 
       child.on('error', reject);
     });
+  }
+
+  private resolveChildUrlFromContent(content: string, fallbackUrl: string): string {
+    try {
+      const raw = JSON.parse(content) as {
+        steps?: Array<{ order: number; action: string; target?: string }>;
+      };
+      if (raw.steps) {
+        const fromSteps = deriveUrlFromSteps(raw.steps);
+        if (fromSteps) return fromSteps;
+      }
+    } catch {
+      // use fallback
+    }
+    return fallbackUrl;
   }
 
   private resolveChildUrl(childFilePath: string, fallbackUrl: string): string {

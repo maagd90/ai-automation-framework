@@ -1,7 +1,7 @@
 import type { SplitResult } from '@ai-agent/agent-core';
 import type { AiConfig } from '@ai-agent/shared-types';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../PersistentJobStore';
+import { jobStore } from '../jobStoreInstance';
 import { ChildJobRunner, type ChildRunResult } from './ChildJobRunner';
 
 export class AgentPoolManager {
@@ -37,6 +37,7 @@ export class AgentPoolManager {
             job,
             split.childId,
             split.filePath,
+            split.content,
             {
               id: split.testCase.id,
               name: split.testCase.name,

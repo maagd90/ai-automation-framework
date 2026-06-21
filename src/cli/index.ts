@@ -18,12 +18,25 @@ const runCmd = new RunCommand();
 program
   .command('generate')
   .description('Parse test case, inspect URL, generate Page Object and spec')
-  .requiredOption('--file <file>', 'Path to test case file (.txt, .json, .feature)')
+  .option('--file <file>', 'Path to test case file (.txt, .json, .feature)')
+  .option('--stdin', 'Read test case JSON from standard input')
   .requiredOption('--url <url>', 'Target application URL')
   .option('--output <dir>', 'Output directory', 'generated')
   .option('--headless <bool>', 'Run browser in headless mode', 'true')
-  .action(async (opts: { file: string; url: string; output: string; headless: string }) => {
+  .action(async (opts: { file?: string; stdin?: boolean; url: string; output: string; headless: string }) => {
     const headless = opts.headless !== 'false';
+    if (opts.stdin) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const content = Buffer.concat(chunks).toString('utf8');
+      await generateCmd.executeFromContent(content, opts.url, opts.output, headless);
+      return;
+    }
+    if (!opts.file) {
+      throw new Error('Either --file or --stdin is required');
+    }
     await generateCmd.execute(opts.file, opts.url, opts.output, headless);
   });
 

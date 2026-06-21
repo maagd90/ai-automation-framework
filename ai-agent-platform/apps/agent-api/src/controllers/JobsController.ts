@@ -3,22 +3,29 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { jobStore } from '../services/PersistentJobStore';
+import { jobStore } from '../services/jobStoreInstance';
 import { jobQueue } from '../services/JobQueue';
 import { zipService } from '../services/ZipService';
+import { jobCleanupService } from '../services/JobCleanupService';
 import { JobEntity } from '../domain/Job';
-import { JOBS_BASE_DIR, ALLOWED_FILE_TYPES } from '../config';
+import {
+  JOBS_BASE_DIR,
+  ALLOWED_FILE_TYPES,
+  EPHEMERAL_SESSIONS,
+  FORCE_HEADLESS,
+  MAX_PARALLEL_AGENTS,
+} from '../config';
 import { CreateJobSchema } from '../validation/schemas';
-import { validateUploadedTestCase } from '../services/UploadValidationService';
+import {
+  validateUploadedTestCase,
+  validateUploadedTestCaseContent,
+} from '../services/UploadValidationService';
+import { validateBatchNavigateUrls, validateJobUrl } from '../services/SsrfUrlGuard';
 import { deriveUrlFromBatch } from '@ai-agent/agent-core';
 
 const TEMP_DIR = fs.realpathSync(os.tmpdir());
 const JOBS_BASE_DIR_RESOLVED = path.resolve(JOBS_BASE_DIR);
 
-/**
- * Maps validated file extensions to safe type labels used in server-generated filenames.
- * Using an explicit lookup table (not derived from user input) breaks taint flow for CodeQL.
- */
 const EXT_TO_LABEL: Readonly<Record<string, string>> = {
   '.json': 'json',
   '.txt': 'txt',
@@ -33,34 +40,23 @@ export class JobsController {
       return;
     }
 
-    // ── Validate upload path is within OS temp dir (multer-generated, not user-chosen) ─
-    const uploadedPath = path.resolve(file.path);
-    const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
-    if (!isInTemp) {
-      res.status(400).json({ error: 'Invalid upload path' });
-      return;
-    }
-
-    // ── Whitelist extension check ────────────────────────────────────────────
     const ext = path.extname(file.originalname).toLowerCase();
-    const typeLabel = EXT_TO_LABEL[ext]; // server-controlled lookup; undefined if not allowed
+    const typeLabel = EXT_TO_LABEL[ext];
     if (typeLabel === undefined) {
-      // Safe to unlink: uploadedPath already confirmed to be inside TEMP_DIR
-      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      this.cleanupUploadTemp(file);
       res.status(400).json({ error: `File type not allowed. Allowed: ${ALLOWED_FILE_TYPES.join(', ')}` });
       return;
     }
 
-    // Parse and validate all fields via Zod
     const parsed = CreateJobSchema.safeParse(req.body);
     if (!parsed.success) {
-      if (isInTemp) try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      this.cleanupUploadTemp(file);
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
       res.status(400).json({ error: `Validation error: ${issues}` });
       return;
     }
 
-    const {
+    let {
       url,
       framework,
       executionMode,
@@ -80,20 +76,43 @@ export class JobsController {
       usedForFailureAnalysis,
     } = parsed.data;
 
+    if (FORCE_HEADLESS) {
+      headless = true;
+    }
+    parallelAgents = Math.min(parallelAgents, MAX_PARALLEL_AGENTS);
+
     const jobId = uuidv4();
-    // inputDir is derived entirely from server-controlled values (JOBS_BASE_DIR + uuid)
-    const inputDir = path.resolve(JOBS_BASE_DIR_RESOLVED, jobId, 'input');
-    fs.mkdirSync(inputDir, { recursive: true });
+    let uploadValidation;
+    let inputFile: string | undefined;
+    let batch = undefined as ReturnType<typeof validateUploadedTestCase>['batch'];
+    let uploadFilename: string | undefined;
 
-    // inputFilePath uses only server-controlled components:
-    //   inputDir (server)  +  'testcases'  +  typeLabel (from EXT_TO_LABEL, not from user)
-    const inputFilePath = path.resolve(inputDir, `testcases.${typeLabel}`);
-    // Move from temp → job input dir
-    fs.renameSync(uploadedPath, inputFilePath);
+    if (EPHEMERAL_SESSIONS) {
+      uploadValidation = validateUploadedTestCaseContent(
+        file.buffer.toString('utf8'),
+        file.originalname,
+      );
+      uploadFilename = file.originalname;
+      batch = uploadValidation.batch;
+    } else {
+      const uploadedPath = path.resolve(file.path);
+      const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
+      if (!isInTemp) {
+        res.status(400).json({ error: 'Invalid upload path' });
+        return;
+      }
 
-    const uploadValidation = validateUploadedTestCase(inputFilePath);
+      const inputDir = path.resolve(JOBS_BASE_DIR_RESOLVED, jobId, 'input');
+      fs.mkdirSync(inputDir, { recursive: true });
+      inputFile = path.resolve(inputDir, `testcases.${typeLabel}`);
+      fs.renameSync(uploadedPath, inputFile);
+      uploadValidation = validateUploadedTestCase(inputFile);
+    }
+
     if (!uploadValidation.valid) {
-      try { fs.unlinkSync(inputFilePath); } catch { /* ignore */ }
+      if (inputFile) {
+        try { fs.unlinkSync(inputFile); } catch { /* ignore */ }
+      }
       res.status(400).json({
         error: 'Test case validation failed',
         errors: uploadValidation.errors,
@@ -101,22 +120,115 @@ export class JobsController {
       return;
     }
 
-    let resolvedUrl = url;
-    if (!resolvedUrl && uploadValidation.batch) {
-      resolvedUrl = deriveUrlFromBatch(uploadValidation.batch);
+    this.finishCreateJob(res, {
+      jobId,
+      inputFile,
+      batch: batch ?? uploadValidation.batch,
+      uploadFilename,
+      uploadValidation,
+      url,
+      framework,
+      executionMode,
+      headless,
+      parallelAgents,
+      autoScale,
+      retryCount,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
+    });
+  }
+
+  private finishCreateJob(
+    res: Response,
+    params: {
+      jobId: string;
+      inputFile?: string;
+      batch?: NonNullable<ReturnType<typeof validateUploadedTestCase>['batch']>;
+      uploadFilename?: string;
+      uploadValidation: ReturnType<typeof validateUploadedTestCase>;
+      url?: string;
+      framework: string;
+      executionMode: 'generate-only' | 'generate-and-execute';
+      headless: boolean;
+      parallelAgents: number;
+      autoScale: boolean;
+      retryCount: number;
+      screenshotOnFailure: boolean;
+      traceOnFailure: boolean;
+      videoOnFailure: boolean;
+      provider: string;
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+      usedForParsing: boolean;
+      usedForNaming: boolean;
+      usedForFailureAnalysis: boolean;
+    },
+  ): void {
+    const {
+      jobId,
+      inputFile,
+      batch,
+      uploadFilename,
+      uploadValidation,
+      framework,
+      executionMode,
+      headless,
+      parallelAgents,
+      autoScale,
+      retryCount,
+      screenshotOnFailure,
+      traceOnFailure,
+      videoOnFailure,
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      usedForParsing,
+      usedForNaming,
+      usedForFailureAnalysis,
+    } = params;
+    let { url } = params;
+
+    if (uploadValidation.batch) {
+      const ssrfBatch = validateBatchNavigateUrls(uploadValidation.batch);
+      if (!ssrfBatch.valid) {
+        res.status(400).json({ error: ssrfBatch.message });
+        return;
+      }
     }
 
-    if (!resolvedUrl) {
+    if (!url && uploadValidation.batch) {
+      url = deriveUrlFromBatch(uploadValidation.batch);
+    }
+
+    if (!url) {
       res.status(400).json({
         error: 'URL is required when test cases do not include a navigate step with a valid URL.',
       });
       return;
     }
 
+    const ssrfUrl = validateJobUrl(url);
+    if (!ssrfUrl.valid) {
+      res.status(400).json({ error: ssrfUrl.message });
+      return;
+    }
+
     const job = new JobEntity({
       jobId,
-      inputFile: inputFilePath,
-      url: resolvedUrl,
+      inputFile,
+      batch,
+      uploadFilename,
+      url,
       framework,
       executionMode,
       headless,
@@ -130,11 +242,10 @@ export class JobsController {
 
     jobStore.set(job);
 
-    // Build AiConfig — apiKey is never logged or returned
     const aiConfig =
       provider !== 'none'
         ? {
-            provider,
+            provider: provider as 'openai' | 'gemini' | 'azure' | 'local' | 'none',
             apiKey,
             model,
             baseUrl,
@@ -146,15 +257,24 @@ export class JobsController {
           }
         : undefined;
 
-    if (aiConfig) {
+    if (aiConfig && !EPHEMERAL_SESSIONS) {
       const aiConfigPath = path.join(JOBS_BASE_DIR_RESOLVED, jobId, 'ai-config.json');
+      fs.mkdirSync(path.dirname(aiConfigPath), { recursive: true });
       fs.writeFileSync(aiConfigPath, JSON.stringify(aiConfig));
     }
 
-    // Run asynchronously via job queue
     jobQueue.enqueue(job, aiConfig);
-
     res.status(201).json({ jobId });
+  }
+
+  private cleanupUploadTemp(file: NonNullable<Request['file']>): void {
+    if (file.path) {
+      const uploadedPath = path.resolve(file.path);
+      const isInTemp = uploadedPath.startsWith(TEMP_DIR + path.sep) || uploadedPath === TEMP_DIR;
+      if (isInTemp) {
+        try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+      }
+    }
   }
 
   getStatus(req: Request, res: Response): void {
@@ -166,6 +286,7 @@ export class JobsController {
         status: job.status,
         totalCases: job.totalCases,
         processedCases: job.processedCases,
+        parallelAgents: job.parallelAgents,
       });
     } catch {
       res.status(404).json({ error: 'Job not found' });
@@ -252,13 +373,14 @@ export class JobsController {
     try {
       const job = jobStore.getOrThrow(jobId);
       if (job.status === 'completed' || job.status === 'failed') {
-        jobStore.delete(jobId);
+        jobCleanupService.scheduleCleanup(jobId, 0);
         res.json({ message: 'Job removed' });
         return;
       }
       job.setStatus('failed');
       job.error = 'Cancelled by user';
       jobStore.set(job);
+      jobCleanupService.scheduleCleanup(jobId, 0);
       res.json({ message: 'Job cancelled' });
     } catch {
       res.status(404).json({ error: 'Job not found' });

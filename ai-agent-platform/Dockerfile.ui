@@ -1,5 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app/ai-agent-platform/apps/agent-ui
+ARG VITE_API_URL=/api
+ARG VITE_FORCE_HEADLESS=false
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_FORCE_HEADLESS=$VITE_FORCE_HEADLESS
 COPY ai-agent-platform/apps/agent-ui/package.json ./
 COPY ai-agent-platform/package.json ../package.json
 COPY ai-agent-platform/packages/shared-types ../packages/shared-types

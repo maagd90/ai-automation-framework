@@ -14,7 +14,19 @@ export class GenerateCommand {
     this.logger.info('Starting generate command', { filePath, url, outputDir, headless });
 
     const content = FileUtils.readFile(filePath);
-    const parser = TestCaseParserFactory.create(filePath);
+    await this.executeFromContent(content, url, outputDir, headless, filePath);
+  }
+
+  async executeFromContent(
+    content: string,
+    url: string,
+    outputDir: string,
+    headless = true,
+    sourceName = 'stdin.json',
+  ): Promise<void> {
+    this.logger.info('Starting generate command', { sourceName, url, outputDir, headless });
+
+    const parser = TestCaseParserFactory.create(sourceName);
     const testCase = parser.parse(content);
     this.logger.info(`Parsed test case: ${testCase.name}`, { steps: testCase.steps.length });
 

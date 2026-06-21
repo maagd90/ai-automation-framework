@@ -12,21 +12,23 @@ export interface UploadValidationResult {
 }
 
 /**
- * Validates an uploaded test case file before job creation.
+ * Validates uploaded test case content before job creation.
  */
-export function validateUploadedTestCase(filePath: string): UploadValidationResult {
-  const content = fs.readFileSync(filePath, 'utf8');
+export function validateUploadedTestCaseContent(
+  content: string,
+  filename: string,
+): UploadValidationResult {
   const parser = new TestCaseParserFactory();
 
   let batch: TestCaseBatch;
   try {
-    batch = parser.parse(filePath, content);
+    batch = parser.parse(filename, content);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { valid: false, errors: [{ field: 'file', message }] };
   }
 
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = path.extname(filename).toLowerCase();
   if (ext === '.json') {
     const schemaErrors = validateJsonSchema(content);
     if (schemaErrors.length > 0) {
@@ -43,6 +45,14 @@ export function validateUploadedTestCase(filePath: string): UploadValidationResu
   }
 
   return { valid: true, errors: [], batch: normalized, normalizationWarnings: warnings };
+}
+
+/**
+ * Validates an uploaded test case file before job creation.
+ */
+export function validateUploadedTestCase(filePath: string): UploadValidationResult {
+  const content = fs.readFileSync(filePath, 'utf8');
+  return validateUploadedTestCaseContent(content, filePath);
 }
 
 function validateJsonSchema(content: string): ValidationError[] {

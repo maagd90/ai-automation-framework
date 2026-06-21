@@ -6,8 +6,8 @@ import { JOBS_BASE_DIR } from '../config';
 
 const STORE_DIR = path.join(JOBS_BASE_DIR, '_store');
 
-interface StoredJob extends Job {
-  inputFile: string;
+interface StoredJob extends Omit<Job, 'inputFile'> {
+  inputFile?: string;
 }
 
 export class PersistentJobStore {
@@ -52,7 +52,7 @@ export class PersistentJobStore {
         const raw = JSON.parse(fs.readFileSync(path.join(STORE_DIR, file), 'utf8')) as StoredJob;
         const job = new JobEntity({
           jobId: raw.jobId,
-          inputFile: raw.inputFile,
+          inputFile: raw.inputFile ?? '',
           url: raw.url,
           framework: raw.framework,
           executionMode: raw.executionMode,
@@ -73,8 +73,7 @@ export class PersistentJobStore {
   }
 
   private persist(job: JobEntity): void {
-    fs.writeFileSync(path.join(STORE_DIR, `${job.jobId}.json`), JSON.stringify(job, null, 2));
+    const { batch: _batch, ...serializable } = job as JobEntity & { batch?: unknown };
+    fs.writeFileSync(path.join(STORE_DIR, `${job.jobId}.json`), JSON.stringify(serializable, null, 2));
   }
 }
-
-export const jobStore = new PersistentJobStore();

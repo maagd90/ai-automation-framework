@@ -84,16 +84,21 @@ Key services in `apps/agent-api/src/services/batch/`:
 | `JOBS_DIR` | Job storage directory (default `/tmp/jobs`) |
 | `REDIS_URL` | BullMQ queue (optional) |
 | `MAX_PARALLEL_AGENTS` | Auto-scale ceiling (default `20`) |
+| `EPHEMERAL_SESSIONS` | In-memory uploads + session cleanup (`true`) |
+| `FORCE_HEADLESS` | Override client headless toggle (`true`) |
+| `SESSION_RETENTION_MS` | Delay before wiping job workspace (default 15 min) |
+| `MAX_CONCURRENT_JOBS` | Global concurrent batch limit (default `1` in MVP) |
+| `MAX_JOBS_PER_IP_PER_HOUR` | Per-IP job creation cap (default `3`) |
 | `API_KEY` | Require `x-api-key` when set |
 | `ALLOWED_ORIGINS` | CORS origins (comma-separated) |
 
-## Docker
+## Internet hosting
+
+See **[docs/hosting.md](docs/hosting.md)** for public deployment with Docker, Cloudflare, ephemeral sessions, AWS MVP sizing, and Windows self-host agent-pool demos.
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.hosting.yml up --build -d
 ```
-
-Services: `agent-api` (3001), `agent-ui` (3000), Postgres, Redis, MinIO.
 
 ## Build scripts
 

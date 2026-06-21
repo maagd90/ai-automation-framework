@@ -3,8 +3,8 @@ import type { AiConfig } from '@ai-agent/shared-types';
 import fs from 'fs';
 import path from 'path';
 import { batchJobManager } from './batch/BatchJobManager';
-import { jobStore } from './PersistentJobStore';
-import { JOBS_BASE_DIR } from '../config';
+import { jobStore } from './jobStoreInstance';
+import { EPHEMERAL_SESSIONS, JOBS_BASE_DIR, MAX_CONCURRENT_JOBS } from '../config';
 
 interface QueuedJob {
   job: JobEntity;
@@ -18,7 +18,8 @@ type BullConnection = { url: string; maxRetriesPerRequest: null };
  */
 export class JobQueue {
   private readonly queue: QueuedJob[] = [];
-  private running = false;
+  private running = 0;
+  private readonly inMemoryAiConfigs = new Map<string, AiConfig>();
   private bullQueue: { add: (name: string, data: { jobId: string }) => Promise<unknown> } | null = null;
   private bullWorkerStarted = false;
 
@@ -44,10 +45,10 @@ export class JobQueue {
             if (!job) {
               throw new Error(`Job ${jobId} not found in store`);
             }
-            const aiConfig = this.loadAiConfig(jobId);
+            const aiConfig = this.resolveAiConfig(jobId);
             await batchJobManager.run(job, aiConfig);
           },
-          { connection, concurrency: 1 },
+          { connection, concurrency: MAX_CONCURRENT_JOBS },
         );
       }
     } catch (err) {
@@ -56,7 +57,10 @@ export class JobQueue {
     }
   }
 
-  private loadAiConfig(jobId: string): AiConfig | undefined {
+  private resolveAiConfig(jobId: string): AiConfig | undefined {
+    const inMemory = this.inMemoryAiConfigs.get(jobId);
+    if (inMemory) return inMemory;
+
     const configPath = path.join(JOBS_BASE_DIR, jobId, 'ai-config.json');
     if (!fs.existsSync(configPath)) return undefined;
     try {
@@ -67,6 +71,10 @@ export class JobQueue {
   }
 
   enqueue(job: JobEntity, aiConfig?: AiConfig): void {
+    if (aiConfig) {
+      this.inMemoryAiConfigs.set(job.jobId, aiConfig);
+    }
+
     if (this.bullQueue) {
       void this.bullQueue.add('run-batch', { jobId: job.jobId });
       return;
@@ -76,11 +84,11 @@ export class JobQueue {
   }
 
   private async processNext(): Promise<void> {
-    if (this.running || this.queue.length === 0) return;
-    this.running = true;
+    if (this.running >= MAX_CONCURRENT_JOBS || this.queue.length === 0) return;
+    this.running += 1;
     const next = this.queue.shift();
     if (!next) {
-      this.running = false;
+      this.running -= 1;
       return;
     }
 
@@ -89,7 +97,8 @@ export class JobQueue {
     } catch (err) {
       console.error('[JobQueue] Unhandled error:', err);
     } finally {
-      this.running = false;
+      this.inMemoryAiConfigs.delete(next.job.jobId);
+      this.running -= 1;
       void this.processNext();
     }
   }

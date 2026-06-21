@@ -148,7 +148,7 @@ export interface Job {
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
-  inputFile: string;
+  inputFile?: string;
   url: string;
   framework: string;
   executionMode: ExecutionMode;
@@ -184,6 +184,7 @@ export interface JobStatusResponse {
   status: JobStatus;
   totalCases?: number;
   processedCases?: number;
+  parallelAgents?: number;
 }
 
 export interface JobLogsResponse {

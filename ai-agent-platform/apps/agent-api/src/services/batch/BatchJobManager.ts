@@ -3,9 +3,10 @@ import path from 'path';
 import { spawn } from 'child_process';
 import type { AiConfig, AiUsageSummary } from '@ai-agent/shared-types';
 import { TestCaseParserFactory, TestCaseBatchValidator, TestCaseSplitter, batchNormalizer } from '@ai-agent/agent-core';
-import { JOBS_BASE_DIR } from '../../config';
+import { EPHEMERAL_SESSIONS, JOBS_BASE_DIR } from '../../config';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../PersistentJobStore';
+import { jobStore } from '../jobStoreInstance';
+import { jobCleanupService } from '../JobCleanupService';
 import { createAiStepInfer } from '../AiStepInferService';
 import { AgentPoolManager } from './AgentPoolManager';
 import { ScreenAwareMerger } from './ScreenAwareMerger';
@@ -27,7 +28,9 @@ export class BatchJobManager {
   private readonly repairSidecar = new PlaywrightRepairSidecar();
 
   async run(job: JobEntity, aiConfig?: AiConfig): Promise<void> {
-    const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
+    const jobDir = path.join(JOBS_BASE_DIR, job.jobId);
+    fs.mkdirSync(jobDir, { recursive: true });
+    const logsFile = path.join(jobDir, 'logs.txt');
     const startedAt = Date.now();
 
     const log = (msg: string): void => {
@@ -43,9 +46,16 @@ export class BatchJobManager {
       log(`Target URL: ${job.url}`);
       log(`Execution mode: ${job.executionMode}`);
 
-      const content = fs.readFileSync(job.inputFile, 'utf8');
-      const parser = new TestCaseParserFactory();
-      const rawBatch = parser.parse(job.inputFile, content);
+      let rawBatch;
+      if (job.batch) {
+        rawBatch = job.batch;
+      } else if (job.inputFile) {
+        const content = fs.readFileSync(job.inputFile, 'utf8');
+        const parser = new TestCaseParserFactory();
+        rawBatch = parser.parse(job.inputFile, content);
+      } else {
+        throw new Error('Job has no test case batch or input file');
+      }
 
       const aiInfer = aiConfig?.usedFor?.parsing ? createAiStepInfer(aiConfig) : undefined;
       const { batch, warnings } = await batchNormalizer.normalizeBatch(rawBatch, { aiInfer });
@@ -73,9 +83,9 @@ export class BatchJobManager {
       job.processedCases = 0;
       jobStore.set(job);
 
-      const splitsDir = path.join(JOBS_BASE_DIR, job.jobId, 'splits');
+      const splitsDir = EPHEMERAL_SESSIONS ? undefined : path.join(jobDir, 'splits');
       const splits = new TestCaseSplitter().split(batch, splitsDir);
-      log(`Split into ${splits.length} child job file(s)`);
+      log(`Split into ${splits.length} child job(s)`);
 
       log(`Generating with ${job.parallelAgents} parallel agent(s)…`);
       const childResults = await this.pool.runAll(job, splits, aiConfig);
@@ -179,7 +189,7 @@ export class BatchJobManager {
         });
       }
 
-      const reportPath = path.join(JOBS_BASE_DIR, job.jobId, 'report.json');
+      const reportPath = path.join(jobDir, 'report.json');
       fs.writeFileSync(reportPath, JSON.stringify(job.report, null, 2));
       fs.mkdirSync(path.join(finalDir, 'reports'), { recursive: true });
       fs.writeFileSync(
@@ -204,8 +214,12 @@ export class BatchJobManager {
         summary: `Job failed: ${msg}`,
       };
       log(`ERROR: ${msg}`);
-      fs.writeFileSync(path.join(JOBS_BASE_DIR, job.jobId, 'report.json'), JSON.stringify(job.report, null, 2));
+      fs.writeFileSync(path.join(jobDir, 'report.json'), JSON.stringify(job.report, null, 2));
       jobStore.set(job);
+    } finally {
+      if (EPHEMERAL_SESSIONS) {
+        jobCleanupService.scheduleCleanup(job.jobId);
+      }
     }
   }
 

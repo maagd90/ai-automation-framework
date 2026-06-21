@@ -10,6 +10,8 @@ import AiConfigPanel from '../components/AiConfigPanel';
 import { createJob } from '../api/jobs';
 import type { AiProvider, ExecutionMode } from '@ai-agent/shared-types';
 
+const FORCE_HEADLESS = import.meta.env.VITE_FORCE_HEADLESS === 'true';
+
 export default function DashboardPage() {
   const navigate = useNavigate();
 
@@ -20,7 +22,7 @@ export default function DashboardPage() {
 
   // Execution config
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('generate-only');
-  const [headless, setHeadless] = useState(true);
+  const [headless, setHeadless] = useState<boolean>(FORCE_HEADLESS || true);
   const [parallelAgents, setParallelAgents] = useState(2);
   const [autoScale, setAutoScale] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
@@ -144,6 +146,7 @@ export default function DashboardPage() {
             onExecutionModeChange={setExecutionMode}
             headless={headless}
             onHeadlessChange={setHeadless}
+            forceHeadless={FORCE_HEADLESS}
             parallelAgents={parallelAgents}
             onParallelAgentsChange={setParallelAgents}
             autoScale={autoScale}

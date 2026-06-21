@@ -1,11 +1,14 @@
-import type { Job, JobStatus, BatchReport, ExecutionMode } from '@ai-agent/shared-types';
+import type { Job, JobStatus, BatchReport, ExecutionMode, TestCaseBatch } from '@ai-agent/shared-types';
 
 export class JobEntity implements Job {
   jobId: string;
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
-  inputFile: string;
+  inputFile?: string;
+  /** In-memory parsed batch — never persisted to disk */
+  batch?: TestCaseBatch;
+  uploadFilename?: string;
   url: string;
   framework: string;
   executionMode: ExecutionMode;
@@ -25,7 +28,9 @@ export class JobEntity implements Job {
 
   constructor(params: {
     jobId: string;
-    inputFile: string;
+    inputFile?: string;
+    batch?: TestCaseBatch;
+    uploadFilename?: string;
     url: string;
     framework: string;
     executionMode?: ExecutionMode;
@@ -42,6 +47,8 @@ export class JobEntity implements Job {
     this.createdAt = new Date().toISOString();
     this.updatedAt = new Date().toISOString();
     this.inputFile = params.inputFile;
+    this.batch = params.batch;
+    this.uploadFilename = params.uploadFilename;
     this.url = params.url;
     this.framework = params.framework;
     this.executionMode = params.executionMode ?? 'generate-only';

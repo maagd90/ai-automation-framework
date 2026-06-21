@@ -5,6 +5,7 @@ interface ExecutionConfigPanelProps {
   onExecutionModeChange: (v: ExecutionMode) => void;
   headless: boolean;
   onHeadlessChange: (v: boolean) => void;
+  forceHeadless?: boolean;
   parallelAgents: number;
   onParallelAgentsChange: (v: number) => void;
   autoScale: boolean;
@@ -27,6 +28,7 @@ export default function ExecutionConfigPanel({
   onExecutionModeChange,
   headless,
   onHeadlessChange,
+  forceHeadless = false,
   parallelAgents,
   onParallelAgentsChange,
   autoScale,
@@ -132,17 +134,23 @@ export default function ExecutionConfigPanel({
       <div>
         <p className="text-sm font-medium text-gray-700 mb-2">Browser Mode</p>
         <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={headless}
-              onChange={(e) => onHeadlessChange(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-            />
-            <span className="text-sm text-gray-700">
-              Headless <span className="text-gray-400">(default, recommended for CI)</span>
-            </span>
-          </label>
+          {forceHeadless ? (
+            <p className="text-sm text-gray-600">
+              Headless <span className="text-gray-400">(required on this server)</span>
+            </p>
+          ) : (
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={headless}
+                onChange={(e) => onHeadlessChange(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+              />
+              <span className="text-sm text-gray-700">
+                Headless <span className="text-gray-400">(default, recommended for CI)</span>
+              </span>
+            </label>
+          )}
         </div>
       </div>
 
