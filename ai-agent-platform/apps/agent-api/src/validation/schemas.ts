@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const ExecutionConfigSchema = z.object({
-  framework: z.string().min(1),
+  framework: z.string().min(1).default('playwright-typescript'),
   executionMode: z
     .enum(['generate-only', 'generate-and-execute'])
     .default('generate-only'),
@@ -14,6 +14,10 @@ export const ExecutionConfigSchema = z.object({
     .transform((v) => Number(v))
     .pipe(z.number().int().min(1).max(10))
     .default(2),
+  autoScale: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v))
+    .default(true),
   retryCount: z
     .union([z.number(), z.string()])
     .transform((v) => Number(v))
@@ -54,7 +58,7 @@ export const AiConfigSchema = z.object({
 
 export const CreateJobSchema = z
   .object({
-    url: z.string().url(),
+    url: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
   })
   .merge(ExecutionConfigSchema)
   .merge(AiConfigSchema);

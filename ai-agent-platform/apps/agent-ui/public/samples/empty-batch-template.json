@@ -1,0 +1,19 @@
+{
+  "batchName": "My Test Suite",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Example test case",
+      "priority": "high",
+      "preconditions": [],
+      "steps": [
+        { "order": 1, "action": "navigate", "target": "https://example.com" },
+        { "order": 2, "action": "click", "target": "Login button" },
+        { "order": 3, "action": "verifyVisible", "target": "Dashboard" }
+      ],
+      "expectedResults": [
+        "Dashboard should be visible"
+      ]
+    }
+  ]
+}

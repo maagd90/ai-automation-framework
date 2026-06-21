@@ -3,6 +3,8 @@ import path from 'path';
 import { JOBS_BASE_DIR } from '../../config';
 import type { JobEntity } from '../../domain/Job';
 
+import os from 'os';
+
 type RenameMap = Map<string, string>;
 
 export class ProjectMerger {
@@ -26,7 +28,7 @@ export class ProjectMerger {
       this.copyTypedFiles(path.join(srcDir, 'locators'), path.join(finalDir, 'locators'), childId);
     }
 
-    this.scaffoldProject(finalDir, job);
+    this.scaffoldProject(finalDir, job, childIds.length);
 
     return finalDir;
   }
@@ -131,7 +133,7 @@ export class ProjectMerger {
     }
   }
 
-  private scaffoldProject(finalDir: string, job: JobEntity): void {
+  scaffoldProject(finalDir: string, job: JobEntity, testCount = 1): void {
     const pkgJson = {
       name: 'generated-playwright-project',
       version: '1.0.0',
@@ -156,6 +158,8 @@ export class ProjectMerger {
     const trace = job.traceOnFailure ? "'retain-on-failure'" : "'off'";
     const video = job.videoOnFailure ? "'retain-on-failure'" : "'off'";
 
+    const workers = Math.min(testCount, os.cpus().length, 4);
+
     const playwrightConfig = `import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
@@ -163,8 +167,8 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env['CI'],
   retries: ${job.retryCount},
-  workers: 1,
-  reporter: [['html', { open: 'never' }], ['line']],
+  workers: ${workers},
+  reporter: [['html', { open: 'never' }], ['line'], ['json', { outputFile: 'reports/playwright-report.json' }]],
   use: {
     headless: ${job.headless},
     screenshot: ${screenshot},

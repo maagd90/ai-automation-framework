@@ -1,7 +1,7 @@
 import type { SplitResult } from '@ai-agent/agent-core';
 import type { AiConfig } from '@ai-agent/shared-types';
 import { JobEntity } from '../../domain/Job';
-import { jobStore } from '../JobStore';
+import { jobStore } from '../jobStoreInstance';
 import { ChildJobRunner, type ChildRunResult } from './ChildJobRunner';
 
 export class AgentPoolManager {
@@ -33,7 +33,20 @@ export class AgentPoolManager {
             );
             jobStore.set(job);
           }
-          result = await this.runner.run(job, split.childId, split.filePath, aiConfig, attempt);
+          result = await this.runner.run(
+            job,
+            split.childId,
+            split.filePath,
+            split.content,
+            {
+              id: split.testCase.id,
+              name: split.testCase.name,
+              priority: split.testCase.priority,
+              steps: split.testCase.steps,
+            },
+            aiConfig,
+            attempt,
+          );
         } while (result.exitCode !== 0 && attempt < maxAttempts);
 
         results.push(result);
@@ -49,6 +62,6 @@ export class AgentPoolManager {
     const workers = Array.from({ length: concurrency }, () => runNext());
     await Promise.all(workers);
 
-    return results;
+    return results.sort((a, b) => a.childId.localeCompare(b.childId));
   }
 }

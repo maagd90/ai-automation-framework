@@ -1,16 +1,20 @@
-import type { Job, JobStatus, BatchReport, ExecutionMode } from '@ai-agent/shared-types';
+import type { Job, JobStatus, BatchReport, ExecutionMode, TestCaseBatch } from '@ai-agent/shared-types';
 
 export class JobEntity implements Job {
   jobId: string;
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
-  inputFile: string;
+  inputFile?: string;
+  /** In-memory parsed batch — never persisted to disk */
+  batch?: TestCaseBatch;
+  uploadFilename?: string;
   url: string;
   framework: string;
   executionMode: ExecutionMode;
   headless: boolean;
   parallelAgents: number;
+  autoScale: boolean;
   retryCount: number;
   screenshotOnFailure: boolean;
   traceOnFailure: boolean;
@@ -24,12 +28,15 @@ export class JobEntity implements Job {
 
   constructor(params: {
     jobId: string;
-    inputFile: string;
+    inputFile?: string;
+    batch?: TestCaseBatch;
+    uploadFilename?: string;
     url: string;
     framework: string;
     executionMode?: ExecutionMode;
     headless?: boolean;
     parallelAgents?: number;
+    autoScale?: boolean;
     retryCount?: number;
     screenshotOnFailure?: boolean;
     traceOnFailure?: boolean;
@@ -40,11 +47,14 @@ export class JobEntity implements Job {
     this.createdAt = new Date().toISOString();
     this.updatedAt = new Date().toISOString();
     this.inputFile = params.inputFile;
+    this.batch = params.batch;
+    this.uploadFilename = params.uploadFilename;
     this.url = params.url;
     this.framework = params.framework;
     this.executionMode = params.executionMode ?? 'generate-only';
     this.headless = params.headless ?? true;
     this.parallelAgents = params.parallelAgents ?? 2;
+    this.autoScale = params.autoScale ?? true;
     this.retryCount = params.retryCount ?? 0;
     this.screenshotOnFailure = params.screenshotOnFailure ?? true;
     this.traceOnFailure = params.traceOnFailure ?? false;

@@ -1,0 +1,35 @@
+{
+  "batchName": "Natural Language Description Steps",
+  "testCases": [
+    {
+      "id": "TC-001",
+      "name": "Login with valid credentials",
+      "priority": "high",
+      "steps": [
+        { "order": 1, "description": "Navigate to https://www.saucedemo.com" },
+        { "order": 2, "description": "Enter \"standard_user\" into Username field" },
+        { "order": 3, "description": "Enter \"secret_sauce\" into Password field" },
+        { "order": 4, "description": "Click Login button" },
+        { "order": 5, "description": "Verify Products page is visible" }
+      ],
+      "expectedResults": [
+        "Products page should be displayed after successful login"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "name": "Login with invalid password",
+      "priority": "medium",
+      "steps": [
+        { "order": 1, "description": "Navigate to https://www.saucedemo.com" },
+        { "order": 2, "description": "Enter \"standard_user\" into Username field" },
+        { "order": 3, "description": "Enter \"wrong_password\" into Password field" },
+        { "order": 4, "description": "Click Login button" },
+        { "order": 5, "description": "Verify error message is visible" }
+      ],
+      "expectedResults": [
+        "Error message should appear"
+      ]
+    }
+  ]
+}

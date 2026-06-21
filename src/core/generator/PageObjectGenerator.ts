@@ -14,15 +14,17 @@ export class PageObjectGenerator {
     const outPath = path.join(outputDir, 'pages', `${className}.ts`);
 
     const content = `import { type Page, expect } from '@playwright/test';
+import { BasePage } from './BasePage.js';
 
-export class ${className} {
-  constructor(private readonly page: Page) {}
+export class ${className} extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
 
 ${methods}
 
   async goto(): Promise<void> {
-    await this.page.goto(${this.renderStringLiteral(url)});
-    await this.page.waitForLoadState('networkidle');
+    await super.goto(${this.renderStringLiteral(url)});
   }
 }
 `;
@@ -35,26 +37,65 @@ ${methods}
 
   private renderMethod(locator: LocatorResult): string {
     const methodName = StringUtils.toMethodName(locator.action, locator.stepTarget);
-    const locatorExpr = this.renderLocatorExpression(locator.primaryLocator);
 
-    switch (locator.action) {
-      case 'enter':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.fill(value);\n  }`;
-      case 'click':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
-      case 'verifyVisible':
-        return `  async ${methodName}(): Promise<void> {\n    await expect(${locatorExpr}).toBeVisible();\n  }`;
-      case 'verifyText':
-        return `  async ${methodName}(expected: string): Promise<void> {\n    await expect(${locatorExpr}).toHaveText(expected);\n  }`;
-      case 'select':
-        return `  async ${methodName}(value: string): Promise<void> {\n    await ${locatorExpr}.selectOption(value);\n  }`;
-      case 'check':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.check();\n  }`;
-      case 'uncheck':
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.uncheck();\n  }`;
-      default:
-        return `  async ${methodName}(): Promise<void> {\n    await ${locatorExpr}.click();\n  }`;
+    if (locator.action === 'navigate') {
+      return `  async ${methodName}(url: string): Promise<void> {\n    await this.page.goto(url);\n    await this.page.waitForLoadState('networkidle');\n  }`;
     }
+
+    const expressions = [
+      this.renderLocatorExpression(locator.primaryLocator),
+      ...locator.fallbackLocators.map((candidate) => this.renderLocatorExpression(candidate)),
+    ];
+
+    return this.renderActionWithFallbacks(methodName, locator.action, expressions);
+  }
+
+  private renderActionWithFallbacks(
+    methodName: string,
+    action: string,
+    expressions: string[],
+  ): string {
+    const renderAttempt = (expr: string): string => {
+      switch (action) {
+        case 'enter':
+          return `await ${expr}.fill(value)`;
+        case 'select':
+          return `await ${expr}.selectOption(value)`;
+        case 'verifyVisible':
+          return `await expect(${expr}).toBeVisible()`;
+        case 'verifyText':
+          return `await expect(${expr}).toHaveText(expected)`;
+        case 'check':
+          return `await ${expr}.check()`;
+        case 'uncheck':
+          return `await ${expr}.uncheck()`;
+        default:
+          return `await ${expr}.click()`;
+      }
+    };
+
+    const hasValueParam = action === 'enter' || action === 'select';
+    const hasExpectedParam = action === 'verifyText';
+    const params = [
+      ...(hasValueParam ? ['value: string'] : []),
+      ...(hasExpectedParam ? ['expected: string'] : []),
+    ].join(', ');
+    const paramSuffix = params ? `(${params})` : '()';
+
+    if (expressions.length <= 1) {
+      const body = renderAttempt(expressions[0]);
+      return `  async ${methodName}${paramSuffix}: Promise<void> {\n    ${body};\n  }`;
+    }
+
+    const attempts = expressions
+      .map((expr, index) => {
+        const attempt = `      ${renderAttempt(expr)};`;
+        return index === 0 ? `    try {\n${attempt}` : `    } catch {\n    try {\n${attempt}`;
+      })
+      .join('\n');
+    const closing = `${'    } catch {\n'.repeat(expressions.length - 1)}      throw new Error('All locator fallbacks failed for ${methodName}');\n${'    }\n'.repeat(expressions.length)}`;
+
+    return `  async ${methodName}${paramSuffix}: Promise<void> {\n${attempts}\n${closing}  }`;
   }
 
   private renderLocatorExpression(candidate: LocatorCandidate): string {

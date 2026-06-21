@@ -3,10 +3,15 @@ import path from 'path';
 import fs from 'fs';
 import { AGENT_CORE_PATH, JOBS_BASE_DIR } from '../config';
 import { JobEntity } from '../domain/Job';
-import { jobStore } from './JobStore';
+import { jobStore } from './jobStoreInstance';
 
 export class AgentRunner {
   async run(job: JobEntity): Promise<void> {
+    if (!job.inputFile) {
+      throw new Error('AgentRunner requires a job input file');
+    }
+
+    const inputFile = job.inputFile;
     const outputDir = path.join(JOBS_BASE_DIR, job.jobId, 'generated');
     const logsFile = path.join(JOBS_BASE_DIR, job.jobId, 'logs.txt');
 
@@ -15,13 +20,13 @@ export class AgentRunner {
     job.setStatus('running');
     job.addLog(`[${new Date().toISOString()}] Job ${job.jobId} started`);
     job.addLog(`[${new Date().toISOString()}] Target URL: ${job.url}`);
-    job.addLog(`[${new Date().toISOString()}] Input file: ${job.inputFile}`);
+    job.addLog(`[${new Date().toISOString()}] Input file: ${inputFile}`);
     jobStore.set(job);
 
     const args = [
       AGENT_CORE_PATH,
       'generate',
-      '--file', job.inputFile,
+      '--file', inputFile,
       '--url', job.url,
       '--output', outputDir,
       '--headless', String(job.headless),

@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { jobsRouter } from './routes/jobs.router';
+import { authMiddleware } from './middleware/auth';
+import { API_RATE_LIMIT_MAX } from './config';
+import { jobCleanupService } from './services/JobCleanupService';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -25,18 +28,24 @@ app.use(
 app.use(express.json());
 
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  windowMs: 15 * 60 * 1000,
+  max: API_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 app.use('/api/', apiLimiter);
-app.use('/api/jobs', jobsRouter);
+app.use('/api/jobs', authMiddleware, jobsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+app.get('/ready', (_req, res) => {
+  res.json({ status: 'ready', timestamp: new Date().toISOString() });
+});
+
+jobCleanupService.startAbandonedJobSweeper();
 
 app.listen(PORT, () => {
   console.log(`Agent API running on http://localhost:${PORT}`);
